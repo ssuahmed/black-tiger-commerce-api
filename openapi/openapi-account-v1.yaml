@@ -1,0 +1,1591 @@
+openapi: 3.1.0
+info:
+  title: Black Tiger Commerce API — Account
+  version: 1.1.0
+  description: |
+    Customer account — profile, **multiple shipping/billing addresses**, **saved contacts**
+    for reuse at checkout, credits, B2B credit application.
+
+    Figma: `general-account.jpg`, `b2b_account_register.jpg`
+    See DESIGN_TO_API_MAPPING_ACCOUNT.md
+
+servers:
+  - url: https://api.blacktiger.com.sa/v1
+  - url: http://localhost:3001/v1
+
+tags:
+  - name: Account
+    description: Profile, summary, credits, address book, contacts (authenticated)
+  - name: Business
+    description: B2B credit account application and status
+
+paths:
+  /account/summary:
+    get:
+      tags: [Account]
+      operationId: getAccountSummary
+      summary: Account shell — user card, completion %, segment, nav badges
+      description: Powers sidebar on all account pages (general-account.jpg).
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Account summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeAccountSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /account/profile:
+    get:
+      tags: [Account]
+      operationId: getAccountProfile
+      summary: Profile details (MY ACCOUNT → Profile)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeAccountProfile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    patch:
+      tags: [Account]
+      operationId: updateAccountProfile
+      summary: Update profile fields
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAccountProfileRequest"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeAccountProfile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /account/credits:
+    get:
+      tags: [Account]
+      operationId: getAccountCredits
+      summary: Credits balance and transaction ledger
+      description: Powers Credits tab (general-account.jpg).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tab
+          in: query
+          schema:
+            type: string
+            enum: [credits, transfers]
+            default: credits
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [all, pending_expiring]
+            default: all
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeCreditsLedger"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Credits not enabled for this account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /account/credits/withdraw:
+    post:
+      tags: [Account]
+      operationId: withdrawCredits
+      summary: Request credit withdrawal (WITHDRAW button)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreditWithdrawRequest"
+      responses:
+        "202":
+          description: Withdrawal request submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeCreditWithdrawal"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /account/addresses:
+    get:
+      tags: [Account]
+      operationId: listAccountAddresses
+      summary: List saved addresses (shipping and/or billing)
+      description: |
+        Returns the user's address book. Filter by usage type or defaults.
+        One address may be tagged for **both** shipping and billing.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: usage
+          in: query
+          schema:
+            type: string
+            enum: [all, shipping, billing]
+            default: all
+        - name: defaultsOnly
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: If true, return only default shipping and billing addresses
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeAddressList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Account]
+      operationId: createAccountAddress
+      summary: Add address to address book
+      description: |
+        User may maintain multiple addresses. Set `usageTypes` to `shipping`, `billing`, or both.
+        At most one default per type (`isDefaultShipping`, `isDefaultBilling`).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddressInput"
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeAddress"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /account/addresses/{addressId}/set-default:
+    post:
+      tags: [Account]
+      operationId: setDefaultAddress
+      summary: Set default shipping or billing address
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/addressId"
+        - name: type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [shipping, billing]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeAddress"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /account/addresses/{addressId}:
+    patch:
+      tags: [Account]
+      operationId: updateAccountAddress
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/addressId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddressInput"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeAddress"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Account]
+      operationId: deleteAccountAddress
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/addressId"
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /account/contacts:
+    get:
+      tags: [Account]
+      operationId: listAccountContacts
+      summary: List saved contacts for orders and delivery
+      description: |
+        Multiple contacts per user (e.g. buyer, receiver, AP). Reused at checkout
+        via `deliveryContactId` / `billingContactId` on `PUT /checkout/:cartId/address`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: usage
+          in: query
+          schema:
+            type: string
+            enum: [all, delivery, order_notifications, billing, accounts_payable]
+            default: all
+        - name: defaultsOnly
+          in: query
+          schema:
+            type: boolean
+            default: false
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeContactList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [Account]
+      operationId: createAccountContact
+      summary: Add contact to address book
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactInput"
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeContact"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /account/contacts/{contactId}/set-default:
+    post:
+      tags: [Account]
+      operationId: setDefaultContact
+      summary: Set default contact for a usage type
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/contactId"
+        - name: type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [delivery, order_notifications, billing]
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeContact"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /account/contacts/{contactId}:
+    get:
+      tags: [Account]
+      operationId: getAccountContact
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/contactId"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeContact"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Account]
+      operationId: updateAccountContact
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/contactId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactInput"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeContact"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Account]
+      operationId: deleteAccountContact
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/contactId"
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /account/payment-methods:
+    get:
+      tags: [Account]
+      operationId: listPaymentMethods
+      summary: Saved payment methods (Payments nav)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopePaymentMethodList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /account/notifications:
+    get:
+      tags: [Account]
+      operationId: getNotificationPreferences
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeNotificationPreferences"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    patch:
+      tags: [Account]
+      operationId: updateNotificationPreferences
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationPreferences"
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeNotificationPreferences"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /account/security:
+    get:
+      tags: [Account]
+      operationId: getSecuritySettings
+      summary: Security capabilities (links to auth flows)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeSecuritySettings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /account/orders:
+    get:
+      tags: [Account]
+      operationId: listAccountOrders
+      summary: Order history (Orders nav) — stub M1, Odoo M3
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeOrderList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /account/returns:
+    get:
+      tags: [Account]
+      operationId: listAccountReturns
+      summary: Returns list (Returns nav) — stub M1
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeReturnList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /account/business:
+    get:
+      tags: [Business]
+      operationId: getBusinessAccount
+      summary: Approved B2B company and credit summary
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeBusinessAccount"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Not a B2B customer or not yet approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /account/business/status:
+    get:
+      tags: [Business]
+      operationId: getBusinessApplicationStatus
+      summary: Credit application / approval status
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeBusinessApplicationStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /account/business/credit-application:
+    post:
+      tags: [Business]
+      operationId: submitCreditApplication
+      summary: Open a Credit Account (b2b_account_register.jpg)
+      description: |
+        B2B credit account application. May be called anonymously (creates lead)
+        or authenticated (links to partner). Review ~5 business days per design copy.
+      security:
+        - bearerAuth: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreditApplicationRequest"
+      responses:
+        "202":
+          description: Application accepted for review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeCreditApplicationSubmitted"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: Application already pending or approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /account/business/credit-application/{applicationId}/documents:
+    post:
+      tags: [Business]
+      operationId: uploadCreditApplicationDocument
+      summary: Upload supporting documents (WBS upload placeholders)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: applicationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, documentType]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                documentType:
+                  type: string
+                  enum: [trade_license, vat_certificate, financial_statement, other]
+      responses:
+        "201":
+          description: Document uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeUploadedDocument"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    addressId:
+      name: addressId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    contactId:
+      name: contactId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Forbidden:
+      description: Not permitted
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+
+  schemas:
+    Meta:
+      type: object
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+
+    ErrorEnvelope:
+      type: object
+      required: [success, error, meta]
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    MoneyAmount:
+      type: object
+      required: [currency, amount]
+      properties:
+        currency:
+          type: string
+          example: SAR
+        amount:
+          type: number
+          format: double
+        formatted:
+          type: string
+
+    ProfileCompletion:
+      type: object
+      required: [percent]
+      properties:
+        percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          example: 60
+        missingFields:
+          type: array
+          items:
+            type: string
+            enum: [phone, shipping_address, billing_address, saved_contact, payment_method, company_verification]
+
+    AccountAvatar:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          nullable: true
+        initials:
+          type: string
+          example: MF
+
+    NavBadge:
+      type: object
+      properties:
+        orders:
+          type: integer
+        returns:
+          type: integer
+        lists:
+          type: integer
+
+    AccountSummary:
+      type: object
+      required: [id, displayName, email, segment, profileCompletion, avatar]
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+          example: Hala Mohammed
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          nullable: true
+        segment:
+          type: string
+          enum: [b2c, b2b]
+        approvalStatus:
+          type: string
+          enum: [none, pending, under_review, approved, rejected]
+          description: B2B credit application state
+        avatar:
+          $ref: "#/components/schemas/AccountAvatar"
+        profileCompletion:
+          $ref: "#/components/schemas/ProfileCompletion"
+        business:
+          $ref: "#/components/schemas/BusinessAccountSummary"
+          nullable: true
+        navBadges:
+          $ref: "#/components/schemas/NavBadge"
+        capabilities:
+          type: object
+          properties:
+            creditsEnabled:
+              type: boolean
+            creditsWithdrawEnabled:
+              type: boolean
+            listsEnabled:
+              type: boolean
+            b2bCheckoutEnabled:
+              type: boolean
+
+    BusinessAccountSummary:
+      type: object
+      properties:
+        companyName:
+          type: string
+        creditLimit:
+          $ref: "#/components/schemas/MoneyAmount"
+        availableCredit:
+          $ref: "#/components/schemas/MoneyAmount"
+        paymentTerms:
+          type: string
+          example: Net 30
+
+    AccountProfile:
+      type: object
+      required: [id, email, segment]
+      properties:
+        id:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        displayName:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        preferredLanguage:
+          type: string
+          example: en
+        marketingOptIn:
+          type: boolean
+        segment:
+          type: string
+          enum: [b2c, b2b]
+
+    UpdateAccountProfileRequest:
+      type: object
+      properties:
+        firstName:
+          type: string
+        lastName:
+          type: string
+        phone:
+          type: string
+        preferredLanguage:
+          type: string
+        marketingOptIn:
+          type: boolean
+
+    CreditTransactionType:
+      type: string
+      enum:
+        - order_fee
+        - loyalty_redemption
+        - refund_card
+        - purchase
+        - return
+        - transfer_in
+        - transfer_out
+        - withdrawal
+        - adjustment
+
+    CreditTransaction:
+      type: object
+      required: [id, createdAt, type, typeLabel, amount, direction, runningBalance]
+      properties:
+        id:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        type:
+          $ref: "#/components/schemas/CreditTransactionType"
+        typeLabel:
+          type: string
+          example: Order Fee
+        details:
+          type: string
+        reference:
+          type: string
+          description: Order or invoice reference
+        amount:
+          $ref: "#/components/schemas/MoneyAmount"
+        direction:
+          type: string
+          enum: [credit, debit]
+        runningBalance:
+          $ref: "#/components/schemas/MoneyAmount"
+
+    CreditsLedger:
+      type: object
+      required: [balance, transactions, pagination]
+      properties:
+        balance:
+          $ref: "#/components/schemas/MoneyAmount"
+        tab:
+          type: string
+          enum: [credits, transfers]
+        statusFilter:
+          type: string
+          enum: [all, pending_expiring]
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/CreditTransaction"
+        pagination:
+          $ref: "#/components/schemas/OffsetPagination"
+
+    OffsetPagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+    CreditWithdrawRequest:
+      type: object
+      required: [amount]
+      properties:
+        amount:
+          $ref: "#/components/schemas/MoneyAmount"
+        bankAccountId:
+          type: string
+          description: Saved payout account when required
+
+    CreditWithdrawal:
+      type: object
+      required: [withdrawalId, status]
+      properties:
+        withdrawalId:
+          type: string
+        status:
+          type: string
+          enum: [pending, processing, completed, rejected]
+
+    AddressUsageType:
+      type: string
+      enum: [shipping, billing]
+
+    AddressInput:
+      type: object
+      required: [countryCode, addressLine1, city, usageTypes]
+      properties:
+        label:
+          type: string
+          maxLength: 80
+          example: Riyadh warehouse
+        usageTypes:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/AddressUsageType"
+          description: Address may be used for shipping, billing, or both
+        companyName:
+          type: string
+        recipientName:
+          type: string
+          description: Name on shipping label (optional; may link to saved contact)
+        countryCode:
+          type: string
+          example: SA
+        addressLine1:
+          type: string
+        addressLine2:
+          type: string
+        city:
+          type: string
+        stateCode:
+          type: string
+        postalCode:
+          type: string
+        phone:
+          type: string
+          description: Location phone (not a saved contact record)
+        deliveryInstructions:
+          type: string
+          maxLength: 500
+        isDefaultShipping:
+          type: boolean
+          default: false
+        isDefaultBilling:
+          type: boolean
+          default: false
+        linkedContactId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Optional default delivery contact for this address
+
+    Address:
+      allOf:
+        - $ref: "#/components/schemas/AddressInput"
+        - type: object
+          required: [id, createdAt, updatedAt]
+          properties:
+            id:
+              type: string
+              format: uuid
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
+
+    ContactUsageType:
+      type: string
+      enum: [delivery, order_notifications, billing, accounts_payable]
+
+    ContactInput:
+      type: object
+      required: [firstName, lastName, email, phone, usageTypes]
+      properties:
+        label:
+          type: string
+          maxLength: 80
+          example: Receiving manager
+        usageTypes:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ContactUsageType"
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          description: Primary phone (E.164 normalized server-side)
+        mobile:
+          type: string
+          nullable: true
+        jobTitle:
+          type: string
+        department:
+          type: string
+        companyName:
+          type: string
+          description: Overrides account company on orders when set
+        isDefaultDelivery:
+          type: boolean
+          default: false
+        isDefaultOrderNotifications:
+          type: boolean
+          default: false
+        isDefaultBilling:
+          type: boolean
+          default: false
+
+    Contact:
+      allOf:
+        - $ref: "#/components/schemas/ContactInput"
+        - type: object
+          required: [id, fullName, createdAt, updatedAt]
+          properties:
+            id:
+              type: string
+              format: uuid
+            fullName:
+              type: string
+              readOnly: true
+              example: Ahmed Al-Rashid
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
+
+    PaymentMethod:
+      type: object
+      required: [id, type, last4]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [card, bank_transfer]
+        brand:
+          type: string
+        last4:
+          type: string
+        expiryMonth:
+          type: integer
+        expiryYear:
+          type: integer
+        isDefault:
+          type: boolean
+
+    NotificationPreferences:
+      type: object
+      properties:
+        orderUpdates:
+          type: boolean
+        promotions:
+          type: boolean
+        creditAlerts:
+          type: boolean
+        smsEnabled:
+          type: boolean
+
+    SecuritySettings:
+      type: object
+      properties:
+        hasPassword:
+          type: boolean
+        otpLoginEnabled:
+          type: boolean
+        changePasswordUrl:
+          type: string
+        forgotPasswordUrl:
+          type: string
+
+    OrderSummary:
+      type: object
+      required: [id, orderNumber, createdAt, status, total]
+      properties:
+        id:
+          type: string
+        orderNumber:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+        total:
+          $ref: "#/components/schemas/MoneyAmount"
+
+    ReturnSummary:
+      type: object
+      required: [id, status, createdAt]
+      properties:
+        id:
+          type: string
+        orderNumber:
+          type: string
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    BillingAddressInput:
+      type: object
+      required: [countryCode, companyName, addressLine1, city, stateCode, postalCode]
+      properties:
+        countryCode:
+          type: string
+          example: SA
+        companyName:
+          type: string
+        mailStop:
+          type: string
+        addressLine1:
+          type: string
+        addressLine2:
+          type: string
+        city:
+          type: string
+        stateCode:
+          type: string
+        postalCode:
+          type: string
+        postalCodeExt:
+          type: string
+
+    CompanyInformationInput:
+      type: object
+      properties:
+        yearFounded:
+          type: integer
+        companyClass:
+          type: string
+          example: distributor
+        dunsNumber:
+          type: string
+        website:
+          type: string
+          format: uri
+        isSubsidiary:
+          type: boolean
+          default: false
+
+    AccountPreferencesInput:
+      type: object
+      required: [accountsPayablePhone, accountsPayableEmail, currency, creditLimitDesired]
+      properties:
+        accountsPayablePhone:
+          type: string
+        accountsPayableEmail:
+          type: string
+          format: email
+        currency:
+          type: string
+          example: SAR
+        creditLimitDesired:
+          type: number
+          format: double
+        preferredLanguage:
+          type: string
+
+    InvoiceDeliveryInput:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+        instructions:
+          type: string
+          maxLength: 2000
+
+    SubmitterInput:
+      type: object
+      required: [name, title, phone, email]
+      properties:
+        name:
+          type: string
+        title:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+          format: email
+
+    CreditApplicationRequest:
+      type: object
+      required: [billing, preferences, invoiceDelivery, submitter]
+      properties:
+        billing:
+          $ref: "#/components/schemas/BillingAddressInput"
+        company:
+          $ref: "#/components/schemas/CompanyInformationInput"
+        preferences:
+          $ref: "#/components/schemas/AccountPreferencesInput"
+        invoiceDelivery:
+          $ref: "#/components/schemas/InvoiceDeliveryInput"
+        submitter:
+          $ref: "#/components/schemas/SubmitterInput"
+
+    CreditApplicationSubmitted:
+      type: object
+      required: [applicationId, status, message]
+      properties:
+        applicationId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [submitted]
+        message:
+          type: string
+        estimatedReviewDays:
+          type: integer
+          example: 5
+
+    BusinessApplicationStatus:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [none, submitted, under_review, approved, rejected]
+        applicationId:
+          type: string
+          format: uuid
+          nullable: true
+        submittedAt:
+          type: string
+          format: date-time
+          nullable: true
+        reviewedAt:
+          type: string
+          format: date-time
+          nullable: true
+        rejectionReason:
+          type: string
+          nullable: true
+
+    BusinessAccount:
+      type: object
+      required: [companyName, approvalStatus]
+      properties:
+        companyName:
+          type: string
+        approvalStatus:
+          type: string
+          enum: [approved]
+        billing:
+          $ref: "#/components/schemas/BillingAddressInput"
+        preferences:
+          $ref: "#/components/schemas/AccountPreferencesInput"
+        creditLimit:
+          $ref: "#/components/schemas/MoneyAmount"
+        availableCredit:
+          $ref: "#/components/schemas/MoneyAmount"
+        paymentTerms:
+          type: string
+        accountsPayableEmail:
+          type: string
+
+    UploadedDocument:
+      type: object
+      properties:
+        id:
+          type: string
+        documentType:
+          type: string
+        fileName:
+          type: string
+        uploadedAt:
+          type: string
+          format: date-time
+
+    EnvelopeAccountSummary:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/AccountSummary"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeAccountProfile:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/AccountProfile"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeCreditsLedger:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/CreditsLedger"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeCreditWithdrawal:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/CreditWithdrawal"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeAddress:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/Address"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeAddressList:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/Address"
+            defaults:
+              type: object
+              properties:
+                shipping:
+                  $ref: "#/components/schemas/Address"
+                  nullable: true
+                billing:
+                  $ref: "#/components/schemas/Address"
+                  nullable: true
+            limits:
+              type: object
+              properties:
+                maxAddresses:
+                  type: integer
+                  example: 20
+                remaining:
+                  type: integer
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeContact:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/Contact"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeContactList:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/Contact"
+            defaults:
+              type: object
+              properties:
+                delivery:
+                  $ref: "#/components/schemas/Contact"
+                  nullable: true
+                orderNotifications:
+                  $ref: "#/components/schemas/Contact"
+                  nullable: true
+                billing:
+                  $ref: "#/components/schemas/Contact"
+                  nullable: true
+            limits:
+              type: object
+              properties:
+                maxContacts:
+                  type: integer
+                  example: 30
+                remaining:
+                  type: integer
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopePaymentMethodList:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/PaymentMethod"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeNotificationPreferences:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/NotificationPreferences"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeSecuritySettings:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/SecuritySettings"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeOrderList:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/OrderSummary"
+            pagination:
+              $ref: "#/components/schemas/OffsetPagination"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeReturnList:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/ReturnSummary"
+            pagination:
+              $ref: "#/components/schemas/OffsetPagination"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeBusinessAccount:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/BusinessAccount"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeBusinessApplicationStatus:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/BusinessApplicationStatus"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeCreditApplicationSubmitted:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/CreditApplicationSubmitted"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeUploadedDocument:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/UploadedDocument"
+        meta:
+          $ref: "#/components/schemas/Meta"

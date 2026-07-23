@@ -1,0 +1,606 @@
+openapi: 3.1.0
+info:
+  title: Black Tiger Commerce API — Checkout
+  version: 1.0.0
+  description: |
+    Checkout orchestration. Address and contact selection uses saved account records
+    (`openapi-account-v1.yaml`) or one-off inline values with optional save-to-book.
+
+    See DESIGN_TO_API_MAPPING_ACCOUNT.md (checkout section)
+
+servers:
+  - url: https://api.blacktiger.com.sa/v1
+  - url: http://localhost:3001/v1
+
+tags:
+  - name: Checkout
+    description: Cart checkout flow (authenticated)
+
+paths:
+  /checkout/{cartId}/address:
+    put:
+      tags: [Checkout]
+      operationId: setCheckoutAddressAndContacts
+      summary: Select shipping/billing addresses and contacts for this order
+      description: |
+        Prefer saved `addressId` and `contactId` from the account address book.
+        Supports different shipping vs billing addresses and contacts.
+
+        On submit, chosen IDs are snapshotted on the Odoo sales order (M3).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: cartId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckoutAddressRequest"
+      responses:
+        "200":
+          description: Checkout draft updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeCheckoutAddress"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /checkout/{cartId}/summary:
+    get:
+      tags: [Checkout]
+      operationId: getCheckoutSummary
+      summary: Priced checkout summary including selected addresses/contacts
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: cartId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeCheckoutSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /checkout/{cartId}/shipping-options:
+    get:
+      tags: [Checkout]
+      operationId: getCheckoutShippingOptions
+      summary: Cart-aware shipping options with efficiency recommendation (M4)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: cartId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Options plus recommendation block
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: "#/components/schemas/ShippingOptionsPayload"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /checkout/{cartId}/payment-intent:
+    post:
+      tags: [Checkout]
+      operationId: createCheckoutPaymentIntent
+      summary: Create a payment intent for the checkout cart
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: cartId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [method]
+              properties:
+                method:
+                  type: string
+                  enum: [card, cod, wire]
+      responses:
+        "201":
+          description: >
+            Payment intent created. When PAYMENT_GATEWAY=paytabs and method=card,
+            response includes redirectUrl for Hosted Payment Page.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopePaymentIntent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    get:
+      tags: [Checkout]
+      operationId: getCheckoutPaymentIntent
+      summary: Get current payment intent status for the cart
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: cartId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Current payment intent (used after PayTabs return)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopePaymentIntent"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /checkout/{cartId}/payment-intent/confirm:
+    post:
+      tags: [Checkout]
+      operationId: confirmCheckoutPaymentIntent
+      summary: Confirm a card payment intent (sandbox) or query PayTabs status
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: cartId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [paymentIntentId]
+              properties:
+                paymentIntentId:
+                  type: string
+                  format: uuid
+      responses:
+        "200":
+          description: Intent confirmed
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /internal/webhooks/paytabs:
+    post:
+      tags: [Webhooks]
+      operationId: paytabsCallback
+      summary: PayTabs server-to-server callback (HMAC Signature header)
+      security: []
+      parameters:
+        - name: Signature
+          in: header
+          required: true
+          schema:
+            type: string
+          description: HMAC-SHA256 hex of raw body using PAYTABS_SERVER_KEY
+      responses:
+        "200":
+          description: Callback accepted (idempotent)
+        "401":
+          description: Invalid or missing signature
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    NotFound:
+      description: Cart or saved record not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+
+  schemas:
+    Meta:
+      type: object
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+
+    ErrorEnvelope:
+      type: object
+      required: [success, error, meta]
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    CheckoutAddressRequest:
+      type: object
+      description: |
+        Provide saved IDs **or** inline address/contact objects. Inline values may
+        be persisted when `saveToAddressBook` / `saveContact` is true.
+      properties:
+        shippingAddressId:
+          type: string
+          format: uuid
+          description: Saved address with `usageTypes` including shipping
+        billingAddressId:
+          type: string
+          format: uuid
+          description: Saved address with `usageTypes` including billing
+        billingSameAsShipping:
+          type: boolean
+          default: false
+          description: When true, billing uses shipping address (billing contact still separate if set)
+        deliveryContactId:
+          type: string
+          format: uuid
+        billingContactId:
+          type: string
+          format: uuid
+        orderNotificationContactId:
+          type: string
+          format: uuid
+          description: Who receives order confirmations; defaults to account email if omitted
+        shippingAddress:
+          $ref: "#/components/schemas/InlineAddress"
+        billingAddress:
+          $ref: "#/components/schemas/InlineAddress"
+        deliveryContact:
+          $ref: "#/components/schemas/InlineContact"
+        billingContact:
+          $ref: "#/components/schemas/InlineContact"
+        saveToAddressBook:
+          type: boolean
+          default: false
+          description: Persist inline addresses to account book
+        saveContacts:
+          type: boolean
+          default: false
+          description: Persist inline contacts to account book
+
+    InlineAddress:
+      type: object
+      required: [countryCode, addressLine1, city, usageTypes]
+      properties:
+        label:
+          type: string
+        usageTypes:
+          type: array
+          items:
+            type: string
+            enum: [shipping, billing]
+        companyName:
+          type: string
+        recipientName:
+          type: string
+        countryCode:
+          type: string
+        addressLine1:
+          type: string
+        addressLine2:
+          type: string
+        city:
+          type: string
+        stateCode:
+          type: string
+        postalCode:
+          type: string
+        phone:
+          type: string
+        deliveryInstructions:
+          type: string
+        isDefaultShipping:
+          type: boolean
+        isDefaultBilling:
+          type: boolean
+
+    InlineContact:
+      type: object
+      required: [firstName, lastName, email, phone, usageTypes]
+      properties:
+        label:
+          type: string
+        usageTypes:
+          type: array
+          items:
+            type: string
+            enum: [delivery, order_notifications, billing, accounts_payable]
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        mobile:
+          type: string
+        jobTitle:
+          type: string
+        isDefaultDelivery:
+          type: boolean
+        isDefaultOrderNotifications:
+          type: boolean
+        isDefaultBilling:
+          type: boolean
+
+    ResolvedCheckoutAddress:
+      type: object
+      required: [cartId, shipping, billing]
+      properties:
+        cartId:
+          type: string
+          format: uuid
+        shipping:
+          $ref: "#/components/schemas/ResolvedAddressBlock"
+        billing:
+          $ref: "#/components/schemas/ResolvedAddressBlock"
+        billingSameAsShipping:
+          type: boolean
+        contacts:
+          type: object
+          properties:
+            delivery:
+              $ref: "#/components/schemas/ResolvedContact"
+            billing:
+              $ref: "#/components/schemas/ResolvedContact"
+            orderNotifications:
+              $ref: "#/components/schemas/ResolvedContact"
+        savedIds:
+          type: object
+          description: IDs written when save flags were used
+          properties:
+            shippingAddressId:
+              type: string
+              format: uuid
+            billingAddressId:
+              type: string
+              format: uuid
+            deliveryContactId:
+              type: string
+              format: uuid
+            billingContactId:
+              type: string
+              format: uuid
+
+    ResolvedAddressBlock:
+      type: object
+      properties:
+        addressId:
+          type: string
+          format: uuid
+          nullable: true
+        label:
+          type: string
+        companyName:
+          type: string
+        recipientName:
+          type: string
+        formatted:
+          type: string
+          example: "3462 Old Al-Kharj Road, Riyadh 14371, SA"
+        countryCode:
+          type: string
+        addressLine1:
+          type: string
+        addressLine2:
+          type: string
+        city:
+          type: string
+        stateCode:
+          type: string
+        postalCode:
+          type: string
+
+    ResolvedContact:
+      type: object
+      properties:
+        contactId:
+          type: string
+          format: uuid
+          nullable: true
+        fullName:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+
+    CheckoutSummary:
+      type: object
+      properties:
+        cartId:
+          type: string
+        addressComplete:
+          type: boolean
+        contactsComplete:
+          type: boolean
+        shippingOptionsAvailable:
+          type: boolean
+        shippingRecommendation:
+          $ref: "#/components/schemas/ShippingRecommendation"
+        resolvedAddress:
+          $ref: "#/components/schemas/ResolvedCheckoutAddress"
+
+    ShippingRecommendation:
+      type: object
+      properties:
+        efficiency:
+          type: object
+          properties:
+            score:
+              type: number
+            utilizationPct:
+              type: number
+        hints:
+          type: array
+          items:
+            type: string
+        message:
+          type: string
+        lines:
+          type: array
+          items:
+            type: object
+        suggestedProducts:
+          type: array
+          items:
+            type: object
+
+    ShippingOptionsPayload:
+      type: object
+      required: [options, recommendation]
+      properties:
+        options:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              label:
+                type: string
+              etaDays:
+                type: number
+              recommended:
+                type: boolean
+              reason:
+                type: string
+                nullable: true
+              price:
+                type: object
+        recommendation:
+          $ref: "#/components/schemas/ShippingRecommendation"
+
+    EnvelopeCheckoutAddress:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/ResolvedCheckoutAddress"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeCheckoutSummary:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/CheckoutSummary"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    PaymentIntent:
+      type: object
+      required: [paymentIntentId, status, gateway]
+      properties:
+        paymentIntentId:
+          type: string
+          format: uuid
+        clientSecret:
+          type: string
+          description: Sandbox only; unused for PayTabs HPP
+        status:
+          type: string
+          enum:
+            - requires_payment_method
+            - requires_confirmation
+            - succeeded
+            - failed
+        gateway:
+          type: string
+          enum: [sandbox, paytabs, placeholder]
+        redirectUrl:
+          type: string
+          nullable: true
+          description: PayTabs Hosted Payment Page URL when gateway=paytabs
+        tranRef:
+          type: string
+          nullable: true
+          description: PayTabs transaction reference
+        amount:
+          type: number
+        currency:
+          type: string
+          example: SAR
+        method:
+          type: string
+          enum: [card, cod, wire]
+
+    EnvelopePaymentIntent:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/PaymentIntent"
+        meta:
+          $ref: "#/components/schemas/Meta"

@@ -1,0 +1,20 @@
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      JWT_ACCESS_SECRET: "${JWT_ACCESS_SECRET:-please-set-strong-access-secret}"
+      JWT_REFRESH_SECRET: "${JWT_REFRESH_SECRET:-please-set-strong-refresh-secret}"
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"

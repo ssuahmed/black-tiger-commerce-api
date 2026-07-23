@@ -1,0 +1,148 @@
+openapi: 3.1.0
+info:
+  title: Black Tiger Commerce API — Chat recommendations
+  version: 1.0.0
+  description: |
+    Product recommendation chat (M4). Default provider is rule-based catalog matching.
+    Set CHAT_PROVIDER=llm for OpenAI-compatible completions (falls back to rules on failure).
+
+servers:
+  - url: https://api.blacktiger.com.sa/v1
+  - url: http://localhost:3001/v1
+
+tags:
+  - name: Chat
+    description: Storefront product assistant
+
+paths:
+  /chat/sessions:
+    post:
+      tags: [Chat]
+      operationId: createChatSession
+      summary: Create a chat session id
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                locale:
+                  type: string
+      responses:
+        "201":
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeChatSession"
+
+  /chat/messages:
+    post:
+      tags: [Chat]
+      operationId: postChatMessage
+      summary: Send a chat message and receive product suggestions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message:
+                  type: string
+                sessionId:
+                  type: string
+                locale:
+                  type: string
+      responses:
+        "201":
+          description: Assistant reply + products
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeChatMessage"
+        "429":
+          description: Guest/user daily or burst Ask AI limit exceeded
+
+components:
+  schemas:
+    ChatProductCard:
+      type: object
+      properties:
+        slug:
+          type: string
+        name:
+          type: string
+        productCode:
+          type: string
+        categoryLabel:
+          type: string
+        image:
+          type: object
+        price:
+          type: object
+        viewHref:
+          type: string
+        badges:
+          type: array
+          items:
+            type: string
+
+    ChatMessage:
+      type: object
+      required: [sessionId, reply, products, provider]
+      properties:
+        sessionId:
+          type: string
+        reply:
+          type: string
+        products:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatProductCard"
+        provider:
+          type: string
+          enum: [rules, llm]
+        usage:
+          type: object
+          description: Remaining Ask AI quota for this guest IP or logged-in user
+          properties:
+            identity:
+              type: string
+              enum: [user, guest]
+            limit:
+              type: integer
+            remaining:
+              type: integer
+            resetAt:
+              type: string
+              format: date-time
+            burstLimit:
+              type: integer
+            burstRemaining:
+              type: integer
+
+    EnvelopeChatSession:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            sessionId:
+              type: string
+        meta:
+          type: object
+
+    EnvelopeChatMessage:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: "#/components/schemas/ChatMessage"
+        meta:
+          type: object

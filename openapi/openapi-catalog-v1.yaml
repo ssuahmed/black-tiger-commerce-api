@@ -1,0 +1,748 @@
+openapi: 3.1.0
+info:
+  title: Black Tiger Commerce API — Catalog
+  version: 1.0.0
+  description: |
+    Catalog endpoints derived from Figma exports:
+    - `material/figma-exports/pages/store listing.jpg` (PLP)
+    - `material/figma-exports/pages/productdetail.jpg` (PDP)
+
+    See DESIGN_TO_API_MAPPING.md for field-level UI mapping.
+
+servers:
+  - url: https://api.blacktiger.com.sa/v1
+    description: Production
+  - url: http://localhost:3001/v1
+    description: Local
+
+tags:
+  - name: Catalog
+    description: Products, categories, facets, PDP
+
+paths:
+  /catalog/categories:
+    get:
+      tags: [Catalog]
+      operationId: listCategories
+      summary: Category tree for navigation and PLP entry
+      responses:
+        "200":
+          description: Category tree
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeCategoryTree"
+
+  /catalog/categories/{slug}:
+    get:
+      tags: [Catalog]
+      operationId: getCategoryBySlug
+      summary: Category metadata, breadcrumbs, optional banner
+      parameters:
+        - $ref: "#/components/parameters/categorySlug"
+      responses:
+        "200":
+          description: Category detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeCategoryDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /catalog/products:
+    get:
+      tags: [Catalog]
+      operationId: listProducts
+      summary: Product listing (PLP) with facets and pagination
+      description: |
+        Powers the store listing page: filters sidebar, active filter chips,
+        product rows, and "Load more" (use cursor pagination).
+      parameters:
+        - name: category
+          in: query
+          description: Category slug (e.g. `passenger-cars`)
+          schema:
+            type: string
+          example: passenger-cars
+        - name: q
+          in: query
+          description: Search query
+          schema:
+            type: string
+        - name: viscosity
+          in: query
+          style: form
+          explode: true
+          description: SAE viscosity filter (multi)
+          schema:
+            type: array
+            items:
+              type: string
+          example: ["10w-40", "20w-50"]
+        - name: range
+          in: query
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+        - name: segment
+          in: query
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+        - name: application
+          in: query
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+        - name: oemSpec
+          in: query
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+        - name: industrySpec
+          in: query
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum:
+              - relevance
+              - name_asc
+              - name_desc
+              - price_asc
+              - price_desc
+            default: relevance
+        - name: view
+          in: query
+          schema:
+            type: string
+            enum: [list, grid]
+            default: list
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 48
+            default: 32
+        - name: cursor
+          in: query
+          description: Cursor for "Load more" (preferred over page)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Product listing page payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeProductListPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /catalog/products/{slug}:
+    get:
+      tags: [Catalog]
+      operationId: getProductBySlug
+      summary: Product detail page (PDP)
+      description: |
+        Full PDP: gallery, packaging options, B2B tiered pallet pricing,
+        technical data, documents, related products.
+      parameters:
+        - $ref: "#/components/parameters/productSlug"
+      responses:
+        "200":
+          description: Product detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeProductDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /catalog/products/{slug}/price-quote:
+    post:
+      tags: [Catalog]
+      operationId: getProductPriceQuote
+      summary: Recalculate PDP pricing for packaging, quantity, and pallet type
+      description: |
+        Called when user changes packaging variant, quantity, or full/partial pallet.
+        Returns line summary matching the PDP order summary table.
+      parameters:
+        - $ref: "#/components/parameters/productSlug"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PriceQuoteRequest"
+      responses:
+        "200":
+          description: Price quote
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopePriceQuote"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+components:
+  parameters:
+    categorySlug:
+      name: slug
+      in: path
+      required: true
+      schema:
+        type: string
+      example: passenger-cars
+    productSlug:
+      name: slug
+      in: path
+      required: true
+      schema:
+        type: string
+      example: tiger-10w30-sl-fully-synthetic
+
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+
+  schemas:
+    Meta:
+      type: object
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+
+    ErrorEnvelope:
+      type: object
+      required: [success, error, meta]
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    Breadcrumb:
+      type: object
+      required: [label, href]
+      properties:
+        label:
+          type: string
+          example: Passenger Cars
+        href:
+          type: string
+          example: /products/passenger-cars
+
+    ImageAsset:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+        alt:
+          type: string
+        width:
+          type: integer
+        height:
+          type: integer
+
+    FacetOption:
+      type: object
+      required: [value, label, count]
+      properties:
+        value:
+          type: string
+          example: 10w-40
+        label:
+          type: string
+          example: SAE 10W-40
+        count:
+          type: integer
+          example: 12
+
+    FacetGroup:
+      type: object
+      required: [key, label, options]
+      properties:
+        key:
+          type: string
+          enum: [viscosity, range, segment, application, oemSpec, industrySpec]
+        label:
+          type: string
+          example: Viscosity
+        collapsed:
+          type: boolean
+          default: false
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/FacetOption"
+
+    ActiveFilter:
+      type: object
+      required: [key, value, label]
+      properties:
+        key:
+          type: string
+        value:
+          type: string
+        label:
+          type: string
+          example: SAE 10W-40
+
+    ProductCard:
+      type: object
+      required: [id, slug, name, productCode, image]
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        name:
+          type: string
+          example: TIGER X 5W30 SN
+        productCode:
+          type: string
+          example: PRODUCT 65518
+        categoryLabel:
+          type: string
+          example: ENGINE OILS
+        shortDescription:
+          type: string
+        image:
+          $ref: "#/components/schemas/ImageAsset"
+        price:
+          $ref: "#/components/schemas/PriceDisplay"
+        badges:
+          type: array
+          items:
+            type: string
+            enum: [new, sale]
+        inStock:
+          type: boolean
+        viewHref:
+          type: string
+          example: /products/tiger-x-5w30-sn
+
+    PriceDisplay:
+      type: object
+      properties:
+        currency:
+          type: string
+          example: SAR
+        amount:
+          type: number
+          format: double
+        formatted:
+          type: string
+          example: "From 83,262.80 SAR"
+        prefix:
+          type: string
+          example: From
+        compareAtAmount:
+          type: number
+          format: double
+
+    CursorPagination:
+      type: object
+      required: [pageSize, total, hasMore]
+      properties:
+        pageSize:
+          type: integer
+        total:
+          type: integer
+          example: 424
+        loaded:
+          type: integer
+          description: Items returned so far (for "32 of 424" UI)
+          example: 32
+        hasMore:
+          type: boolean
+        nextCursor:
+          type: string
+          nullable: true
+
+    ProductListPage:
+      type: object
+      required: [category, breadcrumbs, items, facets, pagination]
+      properties:
+        category:
+          type: object
+          properties:
+            slug:
+              type: string
+            name:
+              type: string
+            banner:
+              type: object
+              nullable: true
+              properties:
+                title:
+                  type: string
+                  example: ADAPTIVE SHIELD TECHNOLOGY
+                body:
+                  type: string
+                ctaLabel:
+                  type: string
+                  example: LEARN MORE
+                ctaHref:
+                  type: string
+                image:
+                  $ref: "#/components/schemas/ImageAsset"
+        breadcrumbs:
+          type: array
+          items:
+            $ref: "#/components/schemas/Breadcrumb"
+        activeFilters:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActiveFilter"
+        facets:
+          type: array
+          items:
+            $ref: "#/components/schemas/FacetGroup"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductCard"
+        pagination:
+          $ref: "#/components/schemas/CursorPagination"
+        view:
+          type: string
+          enum: [list, grid]
+
+    PackagingOption:
+      type: object
+      required: [id, label]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+          example: Box 1L X 12
+        sku:
+          type: string
+        badges:
+          type: array
+          items:
+            type: string
+            enum: [sale]
+        default:
+          type: boolean
+
+    PricingTierRow:
+      type: object
+      properties:
+        minQuantity:
+          type: number
+        maxQuantity:
+          type: number
+          nullable: true
+        unitPrice:
+          type: number
+        extendedPrice:
+          type: number
+        label:
+          type: string
+          description: e.g. tier header "2", "5", "10" boxes
+
+    PalletTierTable:
+      type: object
+      properties:
+        title:
+          type: string
+          example: Price Per Partial Pallet
+        columns:
+          type: array
+          items:
+            type: string
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    LineSummary:
+      type: object
+      properties:
+        packagingLabel:
+          type: string
+        palletType:
+          type: string
+          enum: [full, partial, unit]
+        quantity:
+          type: number
+        unitPrice:
+          type: number
+        extendedPrice:
+          type: number
+        totalPrice:
+          type: number
+        currency:
+          type: string
+
+    ProductDocument:
+      type: object
+      required: [type, title, url]
+      properties:
+        type:
+          type: string
+          enum: [pds, sds, other]
+        title:
+          type: string
+          example: Product Data Sheet
+        url:
+          type: string
+          format: uri
+
+    TypicalRow:
+      type: object
+      properties:
+        test:
+          type: string
+        method:
+          type: string
+        unit:
+          type: string
+        value:
+          type: string
+
+    OemCrossReference:
+      type: object
+      properties:
+        brand:
+          type: string
+        productName:
+          type: string
+
+    ProductDetail:
+      type: object
+      required: [id, slug, name, media, packagingOptions, pricing, breadcrumbs]
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        name:
+          type: string
+          example: TIGER 10W30 SL Fully Synthetic
+        subtitle:
+          type: string
+          example: Full Synthetic API SL Engine Oils
+        breadcrumbs:
+          type: array
+          items:
+            $ref: "#/components/schemas/Breadcrumb"
+        media:
+          type: array
+          items:
+            $ref: "#/components/schemas/ImageAsset"
+        packagingOptions:
+          type: array
+          items:
+            $ref: "#/components/schemas/PackagingOption"
+        pricing:
+          type: object
+          properties:
+            currency:
+              type: string
+              example: SAR
+            unitPrice:
+              type: number
+            formattedTotal:
+              type: string
+            partialPalletTiers:
+              type: array
+              items:
+                $ref: "#/components/schemas/PalletTierTable"
+            fullPalletTiers:
+              type: array
+              items:
+                $ref: "#/components/schemas/PalletTierTable"
+            notices:
+              type: array
+              items:
+                type: object
+                properties:
+                  title:
+                    type: string
+                  body:
+                    type: string
+            lineSummary:
+              $ref: "#/components/schemas/LineSummary"
+        descriptionHtml:
+          type: string
+        benefits:
+          type: array
+          items:
+            type: string
+        specifications:
+          type: array
+          items:
+            type: string
+        typicals:
+          type: array
+          items:
+            $ref: "#/components/schemas/TypicalRow"
+        oemCrossReference:
+          type: array
+          items:
+            $ref: "#/components/schemas/OemCrossReference"
+        documents:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductDocument"
+        relatedProducts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductCard"
+        minQuantity:
+          type: number
+          default: 1
+        quantityStep:
+          type: number
+          default: 1
+
+    PriceQuoteRequest:
+      type: object
+      required: [packagingOptionId, quantity]
+      properties:
+        packagingOptionId:
+          type: string
+        quantity:
+          type: number
+          example: 961
+        palletType:
+          type: string
+          enum: [full, partial, unit]
+          default: unit
+
+    PriceQuote:
+      type: object
+      required: [lineSummary, pricing]
+      properties:
+        lineSummary:
+          $ref: "#/components/schemas/LineSummary"
+        pricing:
+          type: object
+          description: Updated tier context if applicable
+
+    EnvelopeCategoryTree:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          type: object
+          properties:
+            categories:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeCategoryDetail:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          type: object
+          additionalProperties: true
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeProductListPage:
+      type: object
+      required: [success, data, meta]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/ProductListPage"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeProductDetail:
+      type: object
+      required: [success, data, meta]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/ProductDetail"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopePriceQuote:
+      type: object
+      required: [success, data, meta]
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/PriceQuote"
+        meta:
+          $ref: "#/components/schemas/Meta"

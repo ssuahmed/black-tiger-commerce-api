@@ -1,0 +1,876 @@
+openapi: 3.1.0
+info:
+  title: Black Tiger Commerce API — Saved lists (wishlists)
+  version: 1.0.0
+  description: |
+    Multiple saved product lists per customer (wishlists / reorder lists).
+    WBS Quote and lists: create list, add products, add whole list to cart, checkout via cart.
+
+    See DESIGN_TO_API_MAPPING_LISTS.md and COMMERCE_API_PLAN.md section 7.6
+
+servers:
+  - url: https://api.blacktiger.com.sa/v1
+  - url: http://localhost:3001/v1
+
+tags:
+  - name: Lists
+    description: Saved lists (wishlists) — requires authentication
+
+paths:
+  /lists:
+    get:
+      tags: [Lists]
+      operationId: listSavedLists
+      summary: List all saved lists for the current user
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [updatedAt_desc, name_asc, name_desc, createdAt_desc]
+            default: updatedAt_desc
+      responses:
+        "200":
+          description: Paginated list summaries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeSavedListPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    post:
+      tags: [Lists]
+      operationId: createSavedList
+      summary: Create a new saved list
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSavedListRequest"
+      responses:
+        "201":
+          description: List created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeSavedList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Duplicate list name for user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /lists/{listId}:
+    get:
+      tags: [Lists]
+      operationId: getSavedList
+      summary: Get list metadata and items
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/listId"
+        - name: includeItems
+          in: query
+          schema:
+            type: boolean
+            default: true
+      responses:
+        "200":
+          description: List detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeSavedListDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    patch:
+      tags: [Lists]
+      operationId: updateSavedList
+      summary: Rename or update list metadata
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/listId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSavedListRequest"
+      responses:
+        "200":
+          description: Updated list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeSavedList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    delete:
+      tags: [Lists]
+      operationId: deleteSavedList
+      summary: Delete a saved list and all its items
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/listId"
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /lists/{listId}/items:
+    get:
+      tags: [Lists]
+      operationId: listSavedListItems
+      summary: Paginated items in a list
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/listId"
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: List items
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeSavedListItemPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    post:
+      tags: [Lists]
+      operationId: addSavedListItem
+      summary: Add a product line to a list (from PDP/PLP)
+      description: |
+        Same line shape as cart add. If the same product + packaging + palletType
+        already exists, quantities are merged unless `replaceQuantity: true`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/listId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddSavedListItemRequest"
+      responses:
+        "201":
+          description: Item added or updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeSavedListItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    delete:
+      tags: [Lists]
+      operationId: clearSavedListItems
+      summary: Remove all items from a list (keeps the list)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/listId"
+      responses:
+        "204":
+          description: Cleared
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /lists/{listId}/items/bulk:
+    post:
+      tags: [Lists]
+      operationId: bulkAddSavedListItems
+      summary: Add multiple products in one request
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/listId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkAddSavedListItemsRequest"
+      responses:
+        "200":
+          description: Bulk result with per-line outcomes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeBulkAddResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /lists/{listId}/items/{itemId}:
+    patch:
+      tags: [Lists]
+      operationId: updateSavedListItem
+      summary: Update quantity, packaging, or notes on a line
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/listId"
+        - $ref: "#/components/parameters/itemId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSavedListItemRequest"
+      responses:
+        "200":
+          description: Updated item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeSavedListItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    delete:
+      tags: [Lists]
+      operationId: removeSavedListItem
+      summary: Remove one line from a list
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/listId"
+        - $ref: "#/components/parameters/itemId"
+      responses:
+        "204":
+          description: Removed
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /lists/{listId}/add-to-cart:
+    post:
+      tags: [Lists]
+      operationId: addListToCart
+      summary: Add all (or selected) list lines to cart, then checkout as usual
+      description: |
+        Merges list lines into the user's cart with current Odoo pricing.
+        Client navigates to cart → checkout (`POST /checkout/:cartId/submit`).
+
+        Supports idempotency via `Idempotency-Key` header.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/listId"
+        - $ref: "#/components/parameters/idempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddListToCartRequest"
+      responses:
+        "200":
+          description: Lines merged into cart
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeAddListToCartResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: No valid lines could be added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    listId:
+      name: listId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    itemId:
+      name: itemId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    idempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    NotFound:
+      description: List or item not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+
+  schemas:
+    Meta:
+      type: object
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+
+    ErrorEnvelope:
+      type: object
+      required: [success, error, meta]
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    PalletType:
+      type: string
+      enum: [unit, partial, full]
+      description: Matches PDP pallet pricing model
+
+    SavedListSummary:
+      type: object
+      required: [id, name, itemCount, updatedAt, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 120
+          example: Workshop restock Q2
+        description:
+          type: string
+          maxLength: 500
+          nullable: true
+        listType:
+          type: string
+          enum: [wishlist, reorder, project]
+          default: wishlist
+          description: UI label; same API shape for B2C/B2B
+        itemCount:
+          type: integer
+          minimum: 0
+          example: 12
+        previewImages:
+          type: array
+          maxItems: 4
+          items:
+            type: string
+            format: uri
+          description: First product thumbnails for list card UI
+        isDefault:
+          type: boolean
+          default: false
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    SavedListItem:
+      type: object
+      required:
+        - id
+        - productSlug
+        - packagingOptionId
+        - quantity
+        - palletType
+        - addedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        productSlug:
+          type: string
+          example: tiger-10w30-sl-fully-synthetic
+        productId:
+          type: string
+          description: Odoo product id when known
+        packagingOptionId:
+          type: string
+          description: PDP packaging variant id
+        quantity:
+          type: integer
+          minimum: 1
+          example: 4
+        palletType:
+          $ref: "#/components/schemas/PalletType"
+        notes:
+          type: string
+          maxLength: 500
+          nullable: true
+        sortOrder:
+          type: integer
+          default: 0
+        addedAt:
+          type: string
+          format: date-time
+        productSnapshot:
+          $ref: "#/components/schemas/ListItemProductSnapshot"
+        availability:
+          $ref: "#/components/schemas/ListItemAvailability"
+
+    ListItemProductSnapshot:
+      type: object
+      description: Denormalized display fields refreshed on read (M3 from Odoo)
+      properties:
+        name:
+          type: string
+        productCode:
+          type: string
+        imageUrl:
+          type: string
+          format: uri
+        categoryLabel:
+          type: string
+
+    ListItemAvailability:
+      type: object
+      properties:
+        inStock:
+          type: boolean
+        purchasable:
+          type: boolean
+        message:
+          type: string
+          nullable: true
+
+    SavedListDetail:
+      allOf:
+        - $ref: "#/components/schemas/SavedListSummary"
+        - type: object
+          properties:
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/SavedListItem"
+            estimatedSubtotal:
+              $ref: "#/components/schemas/MoneyAmount"
+              description: Optional hint; authoritative total after add-to-cart pricing
+
+    MoneyAmount:
+      type: object
+      properties:
+        currency:
+          type: string
+          example: SAR
+        amount:
+          type: number
+          format: double
+        formatted:
+          type: string
+
+    OffsetPagination:
+      type: object
+      required: [page, pageSize, total, totalPages]
+      properties:
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+    CreateSavedListRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        description:
+          type: string
+          maxLength: 500
+        listType:
+          type: string
+          enum: [wishlist, reorder, project]
+          default: wishlist
+        isDefault:
+          type: boolean
+          default: false
+
+    UpdateSavedListRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+        description:
+          type: string
+          maxLength: 500
+        isDefault:
+          type: boolean
+
+    ListLineInput:
+      type: object
+      required: [productSlug, packagingOptionId, quantity, palletType]
+      properties:
+        productSlug:
+          type: string
+        packagingOptionId:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+        palletType:
+          $ref: "#/components/schemas/PalletType"
+        notes:
+          type: string
+          maxLength: 500
+        replaceQuantity:
+          type: boolean
+          default: false
+          description: If line exists, set qty instead of adding
+
+    AddSavedListItemRequest:
+      allOf:
+        - $ref: "#/components/schemas/ListLineInput"
+
+    BulkAddSavedListItemsRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/ListLineInput"
+
+    UpdateSavedListItemRequest:
+      type: object
+      properties:
+        packagingOptionId:
+          type: string
+        quantity:
+          type: integer
+          minimum: 1
+        palletType:
+          $ref: "#/components/schemas/PalletType"
+        notes:
+          type: string
+          maxLength: 500
+        sortOrder:
+          type: integer
+
+    AddListToCartRequest:
+      type: object
+      properties:
+        cartId:
+          type: string
+          format: uuid
+          description: Target cart; omit to use/create active cart for user
+        itemIds:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Subset of list lines; omit to add all lines
+        mergeMode:
+          type: string
+          enum: [merge, replace_matching_lines]
+          default: merge
+          description: |
+            merge — add quantities to matching cart lines
+            replace_matching_lines — overwrite qty on matching product+packaging+pallet
+        skipUnavailable:
+          type: boolean
+          default: true
+          description: Skip discontinued/OOS lines instead of failing whole request
+        recalculatePrices:
+          type: boolean
+          default: true
+          description: Run Odoo pricelist before returning cart summary
+
+    AddListToCartResult:
+      type: object
+      required: [cartId, addedCount, skipped, cartItemCount]
+      properties:
+        cartId:
+          type: string
+          format: uuid
+        addedCount:
+          type: integer
+          description: Lines successfully added or merged
+        skipped:
+          type: array
+          items:
+            $ref: "#/components/schemas/SkippedListLine"
+        cartItemCount:
+          type: integer
+        cartHref:
+          type: string
+          example: /cart
+        checkoutReady:
+          type: boolean
+          description: False if cart needs address/pricing fixes before checkout
+
+    SkippedListLine:
+      type: object
+      required: [itemId, reason]
+      properties:
+        itemId:
+          type: string
+          format: uuid
+        productSlug:
+          type: string
+        reason:
+          type: string
+          enum:
+            - out_of_stock
+            - discontinued
+            - invalid_packaging
+            - pricing_unavailable
+            - b2b_approval_required
+
+    BulkAddLineResult:
+      type: object
+      required: [index, success]
+      properties:
+        index:
+          type: integer
+        success:
+          type: boolean
+        item:
+          $ref: "#/components/schemas/SavedListItem"
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+
+    BulkAddResult:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/BulkAddLineResult"
+
+    SavedListPage:
+      type: object
+      required: [items, pagination]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SavedListSummary"
+        pagination:
+          $ref: "#/components/schemas/OffsetPagination"
+
+    SavedListItemPage:
+      type: object
+      required: [listId, items, pagination]
+      properties:
+        listId:
+          type: string
+          format: uuid
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SavedListItem"
+        pagination:
+          $ref: "#/components/schemas/OffsetPagination"
+
+    EnvelopeSavedList:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/SavedListSummary"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeSavedListDetail:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/SavedListDetail"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeSavedListPage:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/SavedListPage"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeSavedListItem:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/SavedListItem"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeSavedListItemPage:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/SavedListItemPage"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeAddListToCartResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/AddListToCartResult"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeBulkAddResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/BulkAddResult"
+        meta:
+          $ref: "#/components/schemas/Meta"

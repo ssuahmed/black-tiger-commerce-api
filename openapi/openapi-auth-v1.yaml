@@ -1,0 +1,751 @@
+openapi: 3.1.0
+info:
+  title: Black Tiger Commerce API — Authentication
+  version: 1.1.0
+  description: |
+    Authentication — login via **OTP or password**, register, forgot/reset password.
+
+    Figma: `sigin.jpg`, `signup.jpg`, `verify-otp.jpg`
+    See DESIGN_TO_API_MAPPING_AUTH.md
+
+servers:
+  - url: https://api.blacktiger.com.sa/v1
+  - url: http://localhost:3001/v1
+
+tags:
+  - name: Auth
+    description: Sign in, sign up, OTP, tokens
+
+paths:
+  /auth/password/policy:
+    get:
+      tags: [Auth]
+      operationId: getPasswordPolicy
+      summary: Password rules for signup UI checklist
+      responses:
+        "200":
+          description: Policy rules
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopePasswordPolicy"
+
+  /auth/identifier:
+    post:
+      tags: [Auth]
+      operationId: submitIdentifier
+      summary: Step 1 — email or mobile; returns next auth step
+      description: |
+        Powers the Sign in screen "Continue" button.
+
+        **Login** (`intent: login`) → `nextStep: login_method` with
+        `availableMethods: [otp, password]`.
+
+        **Register** (`intent: register`) → `otp` or `register_form`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IdentifierRequest"
+      responses:
+        "200":
+          description: Next step in auth flow
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeAuthNextStep"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      operationId: registerWithPassword
+      summary: Sign up with email and password
+      description: Powers the Sign Up form (signup.jpg).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Account created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeAuthTokens"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: loginWithPassword
+      summary: Log in with password (after identifier + method choice)
+      description: |
+        Password login path. Requires `challengeId` from `POST /auth/identifier`
+        when user selects password on the login-method step.
+        Returns same generic error for wrong password / unknown user.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeAuthTokens"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/otp/send:
+    post:
+      tags: [Auth]
+      operationId: sendOtp
+      summary: Send 6-digit OTP (login, register, or reset)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpSendRequest"
+      responses:
+        "200":
+          description: OTP dispatched
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeOtpChallenge"
+        "429":
+          description: Resend too soon
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /auth/otp/resend:
+    post:
+      tags: [Auth]
+      operationId: resendOtp
+      summary: Resend OTP (respects cooldown)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpResendRequest"
+      responses:
+        "200":
+          description: OTP resent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeOtpChallenge"
+        "429":
+          description: Cooldown active (e.g. 12s remaining)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /auth/otp/verify:
+    post:
+      tags: [Auth]
+      operationId: verifyOtp
+      summary: Verify 6-digit OTP
+      description: |
+        - `purpose: login` or `register` → returns JWT tokens
+        - `purpose: reset_password` → returns short-lived `resetSessionToken` for password form
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpVerifyRequest"
+      responses:
+        "200":
+          description: Verified
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/EnvelopeAuthTokens"
+                  - $ref: "#/components/schemas/EnvelopeResetSession"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          description: Invalid or expired OTP
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /auth/password/forgot:
+    post:
+      tags: [Auth]
+      operationId: forgotPassword
+      summary: Request password reset (email link or OTP)
+      description: |
+        Standard forgot-password flow. Always returns 202 with generic message
+        (no account enumeration). Email → reset link; mobile → OTP.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForgotPasswordRequest"
+      responses:
+        "202":
+          description: Request accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeForgotPassword"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /auth/password/reset/validate:
+    get:
+      tags: [Auth]
+      operationId: validateResetToken
+      summary: Validate reset token from email link (before showing reset form)
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Token valid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeResetTokenValidation"
+        "400":
+          description: Invalid or expired token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /auth/password/reset:
+    post:
+      tags: [Auth]
+      operationId: resetPassword
+      summary: Set new password (email token, OTP session, or challenge+code)
+      description: |
+        Complete reset using one of:
+        1. `resetToken` from email link
+        2. `resetSessionToken` after `POST /auth/otp/verify` with `purpose: reset_password`
+        3. `challengeId` + `code` + passwords in a single call (OTP + password on one screen)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordResetRequest"
+      responses:
+        "200":
+          description: Password updated; optionally returns tokens for auto-login
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopePasswordResetSuccess"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          description: Invalid token, OTP, or session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refreshTokens
+      summary: Exchange refresh token for new access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: New tokens
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnvelopeAuthTokens"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: Invalidate refresh token
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Logged out
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    BadRequest:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+    Unauthorized:
+      description: Authentication failed
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+
+  schemas:
+    Meta:
+      type: object
+      properties:
+        requestId:
+          type: string
+          format: uuid
+        timestamp:
+          type: string
+          format: date-time
+
+    ErrorEnvelope:
+      type: object
+      required: [success, error, meta]
+      properties:
+        success:
+          type: boolean
+          enum: [false]
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string
+                  code:
+                    type: string
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    IdentifierRequest:
+      type: object
+      required: [identifier, intent]
+      properties:
+        identifier:
+          type: string
+          description: Email or mobile number (E.164 or local KSA format normalized server-side)
+          example: info22@gmail.com
+        intent:
+          type: string
+          enum: [login, register]
+          description: Matches UI toggle Log in vs Sign up
+
+    AuthNextStep:
+      type: object
+      required: [nextStep, challengeId]
+      properties:
+        nextStep:
+          type: string
+          enum: [login_method, otp, password, register_form, complete]
+          description: |
+            - `login_method` → user picks OTP or password (login)
+            - `otp` → send/verify OTP (register or direct OTP login)
+            - `password` → show password field (legacy; prefer login_method)
+            - `register_form` → signup.jpg
+            - `complete` → already authenticated (rare)
+        availableMethods:
+          type: array
+          description: Present when nextStep is login_method
+          items:
+            type: string
+            enum: [otp, password]
+        challengeId:
+          type: string
+          description: Opaque session for OTP/password steps
+        maskedDestination:
+          type: string
+          example: i***22@gmail.com
+        destinationType:
+          type: string
+          enum: [email, sms]
+        identifierType:
+          type: string
+          enum: [email, mobile]
+
+    RegisterRequest:
+      type: object
+      required: [email, password, confirmPassword]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+          minLength: 8
+        confirmPassword:
+          type: string
+          format: password
+        acceptTerms:
+          type: boolean
+          description: Implicit if user reached form; can require true
+
+    LoginRequest:
+      type: object
+      required: [identifier, password]
+      properties:
+        identifier:
+          type: string
+        password:
+          type: string
+          format: password
+        challengeId:
+          type: string
+          description: Required — from POST /auth/identifier (login_method)
+
+    ForgotPasswordRequest:
+      type: object
+      required: [identifier]
+      properties:
+        identifier:
+          type: string
+          description: Email or mobile on file
+        preferredMethod:
+          type: string
+          enum: [auto, email_link, otp]
+          default: auto
+          description: auto = email→link, mobile→OTP
+
+    ForgotPasswordResult:
+      type: object
+      required: [message, deliveryMethod]
+      properties:
+        message:
+          type: string
+          example: If an account exists, instructions have been sent.
+        deliveryMethod:
+          type: string
+          enum: [email_link, otp]
+        maskedDestination:
+          type: string
+          nullable: true
+        challengeId:
+          type: string
+          nullable: true
+          description: Set when deliveryMethod is otp
+
+    PasswordResetRequest:
+      type: object
+      required: [password, confirmPassword]
+      properties:
+        resetToken:
+          type: string
+          description: From email link query param
+        resetSessionToken:
+          type: string
+          description: From OTP verify (purpose reset_password)
+        challengeId:
+          type: string
+          description: Alternative — combine with code
+        code:
+          type: string
+          pattern: "^[0-9]{6}$"
+          description: OTP when using challengeId path
+        password:
+          type: string
+          format: password
+          minLength: 8
+        confirmPassword:
+          type: string
+          format: password
+        autoLogin:
+          type: boolean
+          default: true
+          description: Return JWT after successful reset
+
+    ResetSession:
+      type: object
+      required: [resetSessionToken, expiresInSeconds]
+      properties:
+        resetSessionToken:
+          type: string
+        expiresInSeconds:
+          type: integer
+          example: 900
+
+    ResetTokenValidation:
+      type: object
+      required: [valid]
+      properties:
+        valid:
+          type: boolean
+        expiresInSeconds:
+          type: integer
+        maskedDestination:
+          type: string
+
+    PasswordResetSuccess:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          example: Password updated successfully.
+        tokens:
+          $ref: "#/components/schemas/AuthTokens"
+          description: Present when autoLogin is true
+
+    OtpSendRequest:
+      type: object
+      required: [challengeId, purpose]
+      properties:
+        challengeId:
+          type: string
+        purpose:
+          type: string
+          enum: [login, register, reset_password]
+
+    OtpResendRequest:
+      type: object
+      required: [challengeId]
+      properties:
+        challengeId:
+          type: string
+
+    OtpVerifyRequest:
+      type: object
+      required: [challengeId, code, purpose]
+      properties:
+        challengeId:
+          type: string
+        code:
+          type: string
+          pattern: "^[0-9]{6}$"
+          example: "123456"
+        purpose:
+          type: string
+          enum: [login, register, reset_password]
+
+    OtpChallenge:
+      type: object
+      required: [challengeId, expiresInSeconds, resendAvailableInSeconds]
+      properties:
+        challengeId:
+          type: string
+        expiresInSeconds:
+          type: integer
+          example: 600
+        resendAvailableInSeconds:
+          type: integer
+          example: 12
+        maskedDestination:
+          type: string
+        destinationType:
+          type: string
+          enum: [email, sms]
+
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken:
+          type: string
+
+    PasswordRule:
+      type: object
+      required: [code, label, required]
+      properties:
+        code:
+          type: string
+          enum: [MIN_LENGTH, SPECIAL_CHAR, MIXED_CASE, DIGIT]
+        label:
+          type: string
+        required:
+          type: boolean
+        met:
+          type: boolean
+          description: Populated on validate-password preview endpoint only
+
+    AuthUser:
+      type: object
+      required: [id, segment]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        segment:
+          type: string
+          enum: [b2c, b2b]
+        approvalStatus:
+          type: string
+          enum: [pending, approved, rejected]
+          nullable: true
+        displayName:
+          type: string
+
+    AuthTokens:
+      type: object
+      required: [accessToken, refreshToken, expiresIn, tokenType, user]
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+          description: Access token TTL in seconds
+          example: 900
+        tokenType:
+          type: string
+          enum: [Bearer]
+          default: Bearer
+        user:
+          $ref: "#/components/schemas/AuthUser"
+
+    PasswordPolicy:
+      type: object
+      properties:
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/PasswordRule"
+
+    EnvelopePasswordPolicy:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/PasswordPolicy"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeAuthNextStep:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/AuthNextStep"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeAuthTokens:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/AuthTokens"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeOtpChallenge:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/OtpChallenge"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeForgotPassword:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/ForgotPasswordResult"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeResetSession:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/ResetSession"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopeResetTokenValidation:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/ResetTokenValidation"
+        meta:
+          $ref: "#/components/schemas/Meta"
+
+    EnvelopePasswordResetSuccess:
+      type: object
+      properties:
+        success:
+          type: boolean
+          enum: [true]
+        data:
+          $ref: "#/components/schemas/PasswordResetSuccess"
+        meta:
+          $ref: "#/components/schemas/Meta"

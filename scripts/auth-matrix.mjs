@@ -62,11 +62,22 @@ async function main() {
       if (login.ok && login.data?.accessToken) {
         b2cAccess = login.data.accessToken;
         b2cRefresh = login.data.refreshToken;
+        const partnerOk =
+          typeof login.data.user?.id === 'string' &&
+          (login.data.user.id.startsWith('partner:') ||
+            process.env.ODOO_MODE !== 'live');
         record(
           'B2C password login',
-          true,
-          `${login.data.user?.email} segment=${login.data.user?.segment}`,
+          partnerOk,
+          `${login.data.user?.email} id=${login.data.user?.id} segment=${login.data.user?.segment}`,
         );
+        if (process.env.ODOO_MODE === 'live') {
+          record(
+            'B2C JWT sub is partner id',
+            String(login.data.user?.id || '').startsWith('partner:'),
+            String(login.data.user?.id || ''),
+          );
+        }
       } else {
         record('B2C password login', false, `HTTP ${login.status} ${JSON.stringify(login.data)}`);
       }

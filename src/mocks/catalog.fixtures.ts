@@ -50,6 +50,12 @@ export interface ProductFixture {
   categoryLabel: string;
   /** Storefront segment keys from Odoo `bt_segment_tags` (e.g. passenger-cars). */
   segmentTags?: string[];
+  /** Application facet keys from Odoo `bt_application_tags` (e.g. petrol-engine). */
+  applicationTags?: string[];
+  /** Product line from Odoo `bt_product_line` (tiger_x | tiger_plus | tiger | other). */
+  productLine?: string;
+  /** SAE viscosity from Odoo `bt_viscosity` (e.g. 5w-30). */
+  viscosity?: string;
   shortDescription?: string;
   subtitle?: string;
   sizeLabel?: string;
@@ -107,6 +113,10 @@ function baseProduct(seed: ProductSeed): ProductFixture {
     productCode: seed.productCode,
     categorySlug: seed.categorySlug,
     categoryLabel: seed.categoryLabel,
+    segmentTags: seed.segmentTags,
+    applicationTags: seed.applicationTags,
+    productLine: seed.productLine,
+    viscosity: seed.viscosity,
     shortDescription: seed.shortDescription,
     subtitle: seed.subtitle,
     sizeLabel: seed.sizeLabel,
@@ -136,6 +146,10 @@ export const PRODUCTS_BY_SLUG: Record<string, ProductFixture> = {
     productCode: 'PRODUCT 65518',
     categorySlug: 'passenger-cars',
     categoryLabel: 'ENGINE OILS',
+    segmentTags: ['passenger-cars'],
+    applicationTags: ['petrol-engine', 'diesel-engine'],
+    productLine: 'tiger_plus',
+    viscosity: '10w-30',
     subtitle: 'Full Synthetic, API SL, Engine Oils',
     sizeLabel: '1 Litre (12 Pack)',
     shortDescription: 'Adaptive shield technology for passenger gasoline engines.',
@@ -278,6 +292,10 @@ export const PRODUCTS_BY_SLUG: Record<string, ProductFixture> = {
     productCode: 'PRODUCT 65518',
     categorySlug: 'passenger-cars',
     categoryLabel: 'ENGINE OILS',
+    segmentTags: ['passenger-cars', 'motorcycle-atv'],
+    applicationTags: ['petrol-engine', 'hybrid'],
+    productLine: 'tiger_x',
+    viscosity: '5w-30',
     subtitle: 'Full Synthetic, API SN, Engine Oils',
     sizeLabel: '1 Litre (12 Pack)',
     shortDescription:
@@ -341,6 +359,10 @@ export const PRODUCTS_BY_SLUG: Record<string, ProductFixture> = {
     productCode: 'PRODUCT 66880',
     categorySlug: 'passenger-cars',
     categoryLabel: 'ENGINE OILS',
+    segmentTags: ['commercial', 'passenger-cars'],
+    applicationTags: ['diesel-engine', 'petrol-engine'],
+    productLine: 'tiger',
+    viscosity: '20w-50',
     subtitle: 'Mineral Blend, API SL, Engine Oils',
     sizeLabel: '1 Litre (12 Pack)',
     shortDescription: 'High-performance mineral blend for warmer climates.',
@@ -383,6 +405,10 @@ export const PRODUCTS_BY_SLUG: Record<string, ProductFixture> = {
     productCode: 'PRODUCT 70221',
     categorySlug: 'commercial',
     categoryLabel: 'HEAVY DUTY',
+    segmentTags: ['commercial'],
+    applicationTags: ['diesel-engine', 'transmission'],
+    productLine: 'tiger',
+    viscosity: '15w-40',
     subtitle: 'Diesel Engine Oil, API CI-4',
     sizeLabel: '208 Liter Drum',
     shortDescription: 'Diesel engine oil for commercial fleets.',
@@ -465,59 +491,14 @@ export function productToCard(p: ProductFixture) {
   };
 }
 
-function productSegmentKeys(p: ProductFixture): string[] {
-  if (p.segmentTags?.length) {
-    return p.segmentTags;
-  }
-  if (p.categorySlug === 'commercial') return ['commercial'];
-  if (p.categorySlug === 'industrial') return ['industrial'];
-  if (p.categorySlug.includes('passenger')) return ['passenger-cars'];
-  return ['passenger-cars'];
-}
+import {
+  buildCatalogFacets,
+  type CatalogFacetOptions,
+} from '../modules/catalog/catalog-taxonomy';
 
-export function buildFacets(items: ProductFixture[]) {
-  const viscosity = new Map<string, number>();
-  const segment = new Map<string, number>();
-  for (const p of items) {
-    const vis = p.slug.includes('10w30')
-      ? '10w-30'
-      : p.slug.includes('5w30')
-        ? '5w-30'
-        : p.slug.includes('20w50')
-          ? '20w-50'
-          : p.slug.includes('15w40')
-            ? '15w-40'
-            : 'other';
-    viscosity.set(vis, (viscosity.get(vis) ?? 0) + 1);
-
-    for (const tag of productSegmentKeys(p)) {
-      segment.set(tag, (segment.get(tag) ?? 0) + 1);
-    }
-  }
-
-  return [
-    {
-      key: 'viscosity',
-      label: 'Viscosity (SAE)',
-      collapsed: false,
-      options: [...viscosity.entries()].map(([value, count]) => ({
-        value,
-        label: value.toUpperCase(),
-        count,
-      })),
-    },
-    {
-      key: 'segment',
-      label: 'Segment',
-      collapsed: false,
-      options: [...segment.entries()].map(([value, count]) => ({
-        value,
-        label: value
-          .split('-')
-          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-          .join(' '),
-        count,
-      })),
-    },
-  ];
+export function buildFacets(
+  items: ProductFixture[],
+  options: CatalogFacetOptions = {},
+) {
+  return buildCatalogFacets(items, options);
 }

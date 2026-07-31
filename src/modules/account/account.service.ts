@@ -76,7 +76,6 @@ export class AccountService {
     const odoo = await this.odooProfile(u.email);
     const segment = odoo?.segment ?? u.segment;
     const approvalStatus = odoo?.approvalStatus ?? u.approvalStatus;
-    const credits = this.persistence.creditsLedger.get(userId);
     const listsCount = this.persistence.getUserLists(userId).size;
     const approval =
       segment === 'b2b'
@@ -101,7 +100,8 @@ export class AccountService {
       avatar: {
         url: null as string | null,
         initials:
-          (odoo?.name ?? u.displayName ?? u.email).slice(0, 2).toUpperCase() || 'BT',
+          (odoo?.name ?? u.displayName ?? u.email).slice(0, 2).toUpperCase() ||
+          'BT',
       },
       profileCompletion: {
         percent: 60,
@@ -155,8 +155,8 @@ export class AccountService {
     if (this.odooCustomers.isLive()) {
       try {
         const name =
-          (`${dto.firstName ?? u.firstName ?? ''} ${dto.lastName ?? u.lastName ?? ''}`.trim() ||
-            u.displayName);
+          `${dto.firstName ?? u.firstName ?? ''} ${dto.lastName ?? u.lastName ?? ''}`.trim() ||
+          u.displayName;
         await this.odooCustomers.syncStorefrontProfile({
           email: u.email,
           name,
@@ -171,7 +171,13 @@ export class AccountService {
     return this.getProfile(userId);
   }
 
-  credits(userId: string, tab = 'credits', status = 'all', page = 1, pageSize = 20) {
+  credits(
+    userId: string,
+    tab = 'credits',
+    status = 'all',
+    page = 1,
+    pageSize = 20,
+  ) {
     this.user(userId);
     const ledger = this.persistence.creditsLedger.get(userId);
     const balanceAmount = ledger?.balanceAmount ?? 0;
@@ -212,6 +218,7 @@ export class AccountService {
   }
 
   withdraw(userId: string, dto: WithdrawCreditsDto) {
+    void dto;
     const u = this.user(userId);
     if (u.segment !== 'b2b') {
       throw new ForbiddenException('Withdrawals limited to B2B accounts');
@@ -265,6 +272,21 @@ export class AccountService {
       postalCode: dto.postalCode,
       phone: dto.phone,
       deliveryInstructions: dto.deliveryInstructions,
+      buildingNo: dto.buildingNo,
+      street: dto.street,
+      secondary: dto.secondary,
+      district: dto.district,
+      landmark: dto.landmark,
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+      placeId: dto.placeId,
+      formattedAddress: dto.formattedAddress,
+      addressKind: dto.addressKind,
+      warehouseSlug: dto.warehouseSlug,
+      portOfDestination: dto.portOfDestination,
+      freightType: dto.freightType,
+      nationalAddress: dto.nationalAddress,
+      companyFloor: dto.companyFloor,
       isDefaultShipping: dto.isDefaultShipping ?? false,
       isDefaultBilling: dto.isDefaultBilling ?? false,
     };
@@ -430,6 +452,7 @@ export class AccountService {
   }
 
   paymentMethods(_userId: string) {
+    void _userId;
     return {
       items: [] as Array<{
         id: string;
@@ -453,14 +476,12 @@ export class AccountService {
 
   patchNotifications(userId: string, dto: NotificationPrefsDto) {
     this.user(userId);
-    const cur =
-      this.persistence.notificationPrefs.get(userId) ??
-      ({
-        orderUpdates: true,
-        promotions: false,
-        creditAlerts: true,
-        smsEnabled: false,
-      } as NotificationPrefsDto);
+    const cur = this.persistence.notificationPrefs.get(userId) ?? {
+      orderUpdates: true,
+      promotions: false,
+      creditAlerts: true,
+      smsEnabled: false,
+    };
     const next = {
       orderUpdates: dto.orderUpdates ?? cur.orderUpdates ?? true,
       promotions: dto.promotions ?? cur.promotions ?? false,

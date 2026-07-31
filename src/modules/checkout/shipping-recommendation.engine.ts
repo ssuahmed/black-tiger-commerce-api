@@ -10,19 +10,27 @@ import type {
   SuggestedProductCard,
 } from './shipping-recommendation.types';
 import type { StorefrontShippingOption } from '../../infrastructure/odoo/odoo-shipping.service';
+import { CartLogisticsService } from '../cart/cart-logistics.service';
 
 const DEFAULT_BOX_PER_PALLET = 48;
 const TARGET_UTILIZATION = 0.9;
 
 @Injectable()
 export class ShippingRecommendationEngine {
+  constructor(
+    private readonly logistics: CartLogisticsService = new CartLogisticsService(),
+  ) {}
+
   build(
     baseOptions: StorefrontShippingOption[],
     lines: CartLineForShipping[],
     productsBySlug: Record<string, ProductFixture>,
   ): ShippingOptionsPayload {
     const recommendation = this.buildRecommendation(lines, productsBySlug);
-    const options = this.annotateOptions(baseOptions, recommendation.efficiency.score);
+    const options = this.annotateOptions(
+      baseOptions,
+      recommendation.efficiency.score,
+    );
     return { options, recommendation };
   }
 
@@ -30,6 +38,15 @@ export class ShippingRecommendationEngine {
     lines: CartLineForShipping[],
     productsBySlug: Record<string, ProductFixture>,
   ): ShippingRecommendation {
+    const logistics = this.logistics.calculate(lines, productsBySlug);
+    const palletBreakdown = {
+      fullPallets: logistics.fullPallets,
+      fullDrumPallets: logistics.fullDrumPallets,
+      partialPallets: logistics.partialPallets,
+      totalPallets: logistics.totalPallets,
+      totalNetWeightKg: logistics.totalNetWeightKg,
+      totalPalletsForShipping: logistics.totalPalletsForShipping,
+    };
     if (!lines.length) {
       return {
         efficiency: { score: 0, utilizationPct: 0 },
@@ -38,6 +55,8 @@ export class ShippingRecommendationEngine {
           'Your cart is empty. Add lubricants to unlock pallet utilization tips and shipping recommendations.',
         lines: [],
         suggestedProducts: [],
+        palletBreakdown,
+        logistics,
       };
     }
 
@@ -47,7 +66,10 @@ export class ShippingRecommendationEngine {
 
     for (const line of lines) {
       const product = productsBySlug[line.productSlug];
-      const boxPerPallet = this.resolveBoxPerPallet(product, line.packagingOptionId);
+      const boxPerPallet = this.resolveBoxPerPallet(
+        product,
+        line.packagingOptionId,
+      );
       const { utilizationPct, palletEquivalents } = this.lineUtilization(
         line.palletType,
         line.quantity,
@@ -81,6 +103,8 @@ export class ShippingRecommendationEngine {
       message,
       lines: utilLines,
       suggestedProducts,
+      palletBreakdown,
+      logistics,
     };
   }
 
@@ -93,10 +117,10 @@ export class ShippingRecommendationEngine {
     // Prefer standard freight when efficiency is high; express when low / urgent fill.
     const preferStandard = score >= 70;
     const preferredId = preferStandard
-      ? baseOptions.find((o) => /standard|pallet/i.test(o.id + o.label))?.id ??
-        baseOptions[0].id
-      : baseOptions.find((o) => /express/i.test(o.id + o.label))?.id ??
-        baseOptions[baseOptions.length - 1].id;
+      ? (baseOptions.find((o) => /standard|pallet/i.test(o.id + o.label))?.id ??
+        baseOptions[0].id)
+      : (baseOptions.find((o) => /express/i.test(o.id + o.label))?.id ??
+        baseOptions[baseOptions.length - 1].id);
 
     return baseOptions.map((opt) => {
       const recommended = opt.id === preferredId;
@@ -117,7 +141,9 @@ export class ShippingRecommendationEngine {
     product: ProductFixture | undefined,
     packagingOptionId: string,
   ): number {
-    const pkg = product?.packagingOptions?.find((p) => p.id === packagingOptionId);
+    const pkg = product?.packagingOptions?.find(
+      (p) => p.id === packagingOptionId,
+    );
     const pricing = pkg?.pricing as
       | { fullPallet?: { rows?: Array<{ boxPerPallet?: number }> } }
       | undefined;
@@ -155,17 +181,26 @@ export class ShippingRecommendationEngine {
     return { utilizationPct, palletEquivalents };
   }
 
-  private buildHints(lines: ShippingLineUtilization[], score: number): string[] {
+  private buildHints(
+    lines: ShippingLineUtilization[],
+    score: number,
+  ): string[] {
     const hints: string[] = [];
     if (score >= 90) {
       hints.push('Pallet utilization is excellent — proceed with checkout.');
       return hints;
     }
     const incomplete = lines
-      .filter((l) => l.utilizationPct < TARGET_UTILIZATION * 100 && l.palletType !== 'full')
+      .filter(
+        (l) =>
+          l.utilizationPct < TARGET_UTILIZATION * 100 &&
+          l.palletType !== 'full',
+      )
       .sort((a, b) => a.utilizationPct - b.utilizationPct)[0];
     if (incomplete) {
-      const targetBoxes = Math.ceil(TARGET_UTILIZATION * incomplete.boxPerPallet);
+      const targetBoxes = Math.ceil(
+        TARGET_UTILIZATION * incomplete.boxPerPallet,
+      );
       const need = Math.max(0, targetBoxes - incomplete.quantity);
       if (need > 0) {
         hints.push(
@@ -174,10 +209,14 @@ export class ShippingRecommendationEngine {
       }
     }
     if (score < 50) {
-      hints.push('Consider consolidating into fewer fuller pallets to improve freight efficiency.');
+      hints.push(
+        'Consider consolidating into fewer fuller pallets to improve freight efficiency.',
+      );
     }
     if (!hints.length) {
-      hints.push('Increase pallet fill toward 90% for a more efficient shipment.');
+      hints.push(
+        'Increase pallet fill toward 90% for a more efficient shipment.',
+      );
     }
     return hints;
   }
@@ -209,7 +248,9 @@ export class ShippingRecommendationEngine {
       if (category && (p.segmentTags ?? []).includes(category)) return true;
       return false;
     });
-    const pool = candidates.length ? candidates : all.filter((p) => !inCart.has(p.slug));
+    const pool = candidates.length
+      ? candidates
+      : all.filter((p) => !inCart.has(p.slug));
     return pool.slice(0, 3).map((p) => this.toSuggestedCard(productToCard(p)));
   }
 
@@ -220,17 +261,28 @@ export class ShippingRecommendationEngine {
         : undefined;
     const price =
       card.price && typeof card.price === 'object'
-        ? (card.price as { formatted?: string; amount?: number; currency?: string })
+        ? (card.price as {
+            formatted?: string;
+            amount?: number;
+            currency?: string;
+          })
         : undefined;
+    const text = (value: unknown): string | undefined =>
+      typeof value === 'string' || typeof value === 'number'
+        ? String(value)
+        : undefined;
+    const slug = text(card.slug) ?? '';
     return {
-      slug: String(card.slug ?? ''),
-      name: String(card.name ?? card.slug ?? ''),
-      productCode: card.productCode ? String(card.productCode) : undefined,
-      categoryLabel: card.categoryLabel ? String(card.categoryLabel) : undefined,
+      slug,
+      name: text(card.name) ?? slug,
+      productCode: text(card.productCode),
+      categoryLabel: text(card.categoryLabel),
       image: image?.url ? { url: image.url, alt: image.alt } : undefined,
       price,
-      viewHref: card.viewHref ? String(card.viewHref) : undefined,
-      badges: Array.isArray(card.badges) ? (card.badges as string[]) : undefined,
+      viewHref: text(card.viewHref),
+      badges: Array.isArray(card.badges)
+        ? (card.badges as string[])
+        : undefined,
     };
   }
 }

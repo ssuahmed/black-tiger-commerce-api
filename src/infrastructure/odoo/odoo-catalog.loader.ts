@@ -62,6 +62,8 @@ type OdooTemplate = {
   bt_storefront_slug: string;
   bt_product_line: string | false;
   bt_segment_tags: string | false;
+  bt_application_tags?: string | false;
+  bt_viscosity?: string | false;
   bt_subtitle: string | false;
   bt_size_label: string | false;
   bt_description_html: string | false;
@@ -144,36 +146,66 @@ export class OdooCatalogLoader {
 
     const { categoriesBySlug, categoryTree } = buildCategoryViews(categories);
 
-    const templates = await this.odoo.executeKw<OdooTemplate[]>(
-      'product.template',
-      'search_read',
-      [
+    const templateFields = [
+      'name',
+      'default_code',
+      'list_price',
+      'description_sale',
+      'bt_storefront_slug',
+      'bt_product_line',
+      'bt_segment_tags',
+      'bt_application_tags',
+      'bt_viscosity',
+      'bt_subtitle',
+      'bt_size_label',
+      'bt_description_html',
+      'bt_pricing_notice_partial',
+      'bt_pricing_notice_full',
+      'bt_related_product_ids',
+      'categ_id',
+      'qty_available',
+    ];
+    let templates: OdooTemplate[];
+    try {
+      templates = await this.odoo.executeKw<OdooTemplate[]>(
+        'product.template',
+        'search_read',
         [
-          ['sale_ok', '=', true],
-          ['bt_storefront_slug', '!=', false],
+          [
+            ['sale_ok', '=', true],
+            ['bt_storefront_slug', '!=', false],
+          ],
         ],
-      ],
-      {
-        fields: [
-          'name',
-          'default_code',
-          'list_price',
-          'description_sale',
-          'bt_storefront_slug',
-          'bt_product_line',
-          'bt_segment_tags',
-          'bt_subtitle',
-          'bt_size_label',
-          'bt_description_html',
-          'bt_pricing_notice_partial',
-          'bt_pricing_notice_full',
-          'bt_related_product_ids',
-          'categ_id',
-          'qty_available',
+        {
+          fields: templateFields,
+          order: 'name asc',
+        },
+      );
+    } catch (err) {
+      const msg = String(err);
+      if (!msg.includes('Invalid field') && !msg.includes('does not exist')) {
+        throw err;
+      }
+      this.logger.warn(
+        'bt_application_tags/bt_viscosity missing on Odoo — upgrade black_tiger_base. Loading without taxonomy fields.',
+      );
+      templates = await this.odoo.executeKw<OdooTemplate[]>(
+        'product.template',
+        'search_read',
+        [
+          [
+            ['sale_ok', '=', true],
+            ['bt_storefront_slug', '!=', false],
+          ],
         ],
-        order: 'name asc',
-      },
-    );
+        {
+          fields: templateFields.filter(
+            (f) => f !== 'bt_application_tags' && f !== 'bt_viscosity',
+          ),
+          order: 'name asc',
+        },
+      );
+    }
 
     const tmplIds = templates.map((t) => t.id);
     const baseUrl = (this.config.get<string>('ODOO_URL') || 'http://localhost:8069').replace(
@@ -287,6 +319,9 @@ export class OdooCatalogLoader {
         categorySlug: cat.slug,
         categoryLabel: cat.label,
         segmentTags: parseSegmentTags(t.bt_segment_tags),
+        applicationTags: parseSegmentTags(t.bt_application_tags ?? false),
+        productLine: t.bt_product_line ? String(t.bt_product_line) : undefined,
+        viscosity: t.bt_viscosity ? String(t.bt_viscosity).trim().toLowerCase() : undefined,
         shortDescription: t.description_sale
           ? String(t.description_sale)
           : undefined,

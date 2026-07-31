@@ -11,12 +11,16 @@ import {
 } from '../../persistence/persistence.service';
 import { CatalogProductsProvider } from '../catalog/catalog-products.provider';
 import { resolveQuoteUnitPrice } from '../catalog/catalog-pricing';
+import { PromotionsService } from '../promotions/promotions.service';
+import { CartLogisticsService } from './cart-logistics.service';
 
 @Injectable()
 export class CartService {
   constructor(
     private readonly persistence: PersistenceService,
     private readonly catalog: CatalogProductsProvider,
+    private readonly logisticsService: CartLogisticsService,
+    private readonly promotions: PromotionsService,
   ) {}
 
   async createCart(userId: string | undefined, mergeCartId?: string) {
@@ -168,20 +172,41 @@ export class CartService {
   }
 
   private async present(cart: CartEntity) {
-    const lines = await Promise.all(
-      cart.items.map((l) => this.linePayload(cart, l)),
-    );
+    const [lines, snapshot] = await Promise.all([
+      Promise.all(cart.items.map((l) => this.linePayload(cart, l))),
+      this.catalog.getSnapshot(),
+    ]);
     const subtotal = lines.reduce((s, l) => s + (l.totalPrice ?? 0), 0);
     const itemCount = lines.reduce((s, l) => s + (l.quantity ?? 0), 0);
+    const promo = this.promotions.evaluate(cart, subtotal);
+    const discount = promo?.discount ?? 0;
+    const vat = Math.round((subtotal - discount) * 0.15 * 100) / 100;
+    const shipping = 0;
+    const grandTotal = subtotal - discount + vat + shipping;
+    const fmt = (amount: number) => `${amount.toLocaleString('en-SA')} SAR`;
+    const logistics = this.logisticsService.calculate(
+      cart.items,
+      snapshot.productsBySlug,
+    );
     return {
       id: cart.id,
       userId: cart.userId ?? null,
       updatedAt: cart.updatedAt,
       items: lines,
+      logistics,
+      promo,
       totals: {
         currency: 'SAR',
         subtotal,
-        formattedSubtotal: `${subtotal.toLocaleString('en-SA')} SAR`,
+        discount,
+        vat,
+        shipping,
+        grandTotal,
+        formattedSubtotal: fmt(subtotal),
+        formattedDiscount: fmt(discount),
+        formattedVat: fmt(vat),
+        formattedShipping: fmt(shipping),
+        formattedGrandTotal: fmt(grandTotal),
         itemCount,
       },
     };

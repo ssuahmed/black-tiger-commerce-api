@@ -18,8 +18,16 @@ import { PersistenceService } from '../../persistence/persistence.service';
 import { CatalogProductsProvider } from '../catalog/catalog-products.provider';
 import { CartService } from '../cart/cart.service';
 import { PaymentService } from '../payment/payment.service';
+import {
+  WAREHOUSES,
+  WAREHOUSES_BY_SLUG,
+} from '../../mocks/warehouses.fixtures';
 import { buildStorefrontCheckoutPayload } from './checkout-order.mapper';
-import type { CheckoutAddressDto } from './checkout.dto';
+import type {
+  CheckoutAddressDto,
+  CheckoutShippingDto,
+  CheckoutSubmitDto,
+} from './checkout.dto';
 import { ShippingRecommendationEngine } from './shipping-recommendation.engine';
 import type { ShippingOptionsPayload } from './shipping-recommendation.types';
 
@@ -35,6 +43,21 @@ export interface ResolvedAddr {
   city?: string;
   stateCode?: string;
   postalCode?: string;
+  buildingNo?: string;
+  street?: string;
+  secondary?: string;
+  district?: string;
+  landmark?: string;
+  latitude?: number;
+  longitude?: number;
+  placeId?: string;
+  formattedAddress?: string;
+  addressKind?: 'home' | 'work' | 'business' | 'pickup';
+  warehouseSlug?: string;
+  portOfDestination?: string;
+  freightType?: string;
+  nationalAddress?: string;
+  companyFloor?: string;
 }
 
 export interface ResolvedCt {
@@ -62,6 +85,16 @@ export class CheckoutService {
     return this.cartService.attachUserIfAnonymous(cartId, userId);
   }
 
+  listWarehouses() {
+    return { items: WAREHOUSES };
+  }
+
+  getWarehouse(slug: string) {
+    const warehouse = WAREHOUSES_BY_SLUG[slug];
+    if (!warehouse) throw new NotFoundException('Warehouse not found');
+    return warehouse;
+  }
+
   putAddress(cartId: string, userId: string, dto: CheckoutAddressDto) {
     this.ensureOwnership(cartId, userId);
     const savedIds: Record<string, string | undefined> = {};
@@ -83,16 +116,23 @@ export class CheckoutService {
       savedIds,
     };
 
-    const prevShipOpt = this.persistence.checkoutDrafts.get(cartId)?.payload[
-      'shippingOptionId'
-    ] as string | undefined;
+    const previous = this.persistence.checkoutDrafts.get(cartId);
+    const prevShipOpt = previous?.payload['shippingOptionId'] as
+      | string
+      | undefined;
 
     const draft: CheckoutDraftEntity = {
       cartId,
       userId,
       payload: {
+        ...(previous?.payload ?? {}),
         resolved,
         shippingOptionId: prevShipOpt,
+        purchaseOrderNumber:
+          dto.purchaseOrderNumber ??
+          previous?.payload['purchaseOrderNumber'] ??
+          null,
+        orderNotes: dto.orderNotes ?? previous?.payload['orderNotes'] ?? null,
       },
     };
     this.persistence.checkoutDrafts.set(cartId, draft);
@@ -122,8 +162,10 @@ export class CheckoutService {
       ? opts.find((o) => o.id === shippingOptionId)
       : undefined;
     const subtotal = cart.totals?.subtotal ?? 0;
+    const discount = cart.totals?.discount ?? 0;
+    const vat = cart.totals?.vat ?? 0;
     const shippingAmount = selected?.price?.amount ?? 0;
-    const grandTotal = subtotal + shippingAmount;
+    const grandTotal = subtotal - discount + vat + shippingAmount;
     const fmt = (n: number) => `${n.toLocaleString('en-SA')} SAR`;
     const shippingBlock = resolvedAddress?.['shipping'] as
       | ResolvedAddr
@@ -138,16 +180,25 @@ export class CheckoutService {
       selectedShipping: selected ?? null,
       shippingRecommendation: shippingPayload.recommendation,
       deliveryAddress: shippingBlock?.formatted ?? null,
+      purchaseOrderNumber: draft?.payload['purchaseOrderNumber'] ?? null,
+      orderNotes: draft?.payload['orderNotes'] ?? null,
+      logistics: cart.logistics,
+      promo: cart.promo,
       resolvedAddress,
       cartPreview: cart,
       totals: {
         currency: 'SAR',
         subtotal,
+        discount,
+        vat,
         shipping: shippingAmount,
         grandTotal,
         formattedSubtotal: fmt(subtotal),
+        formattedDiscount: fmt(discount),
+        formattedVat: fmt(vat),
         formattedShipping:
-          selected?.price?.formatted ?? (shippingAmount > 0 ? fmt(shippingAmount) : fmt(0)),
+          selected?.price?.formatted ??
+          (shippingAmount > 0 ? fmt(shippingAmount) : fmt(0)),
         formattedGrandTotal: fmt(grandTotal),
         itemCount: cart.totals?.itemCount ?? cart.items?.length ?? 0,
       },
@@ -180,9 +231,10 @@ export class CheckoutService {
     );
   }
 
-  async putShipping(cartId: string, userId: string, shippingOptionId: string) {
+  async putShipping(cartId: string, userId: string, dto: CheckoutShippingDto) {
     this.ensureOwnership(cartId, userId);
     const payload = await this.shippingOptions(cartId, userId);
+    const shippingOptionId = dto.shippingOptionId;
     const selected = payload.options.find((o) => o.id === shippingOptionId);
     if (!selected) {
       throw new BadRequestException('Invalid shipping option');
@@ -195,6 +247,7 @@ export class CheckoutService {
         payload: {},
       } satisfies CheckoutDraftEntity);
     prev.payload['shippingOptionId'] = shippingOptionId;
+    this.persistDraftMetadata(prev, dto);
     this.persistence.checkoutDrafts.set(cartId, prev);
     return {
       cartId,
@@ -215,11 +268,14 @@ export class CheckoutService {
     let shippingAmount = 0;
     if (shipOpt) {
       const opts = await this.shippingOptions(cartId, userId);
-      shippingAmount = opts.options.find((o) => o.id === shipOpt)?.price?.amount ?? 0;
+      shippingAmount =
+        opts.options.find((o) => o.id === shipOpt)?.price?.amount ?? 0;
     }
-    const amount = (cart.totals?.subtotal ?? 0) + shippingAmount;
+    const amount = (cart.totals?.grandTotal ?? 0) + shippingAmount;
 
-    const resolved = draft?.payload['resolved'] as Record<string, unknown> | undefined;
+    const resolved = draft?.payload['resolved'] as
+      | Record<string, unknown>
+      | undefined;
     const contacts = resolved?.['contacts'] as
       | Record<string, { fullName?: string; email?: string; phone?: string }>
       | undefined;
@@ -272,7 +328,10 @@ export class CheckoutService {
       throw new NotFoundException('Payment intent not found for cart');
     }
     const live = this.payments.getIntent(stored.paymentIntentId);
-    const status = live?.status ?? stored.status ?? this.payments.getIntentStatus(stored.paymentIntentId);
+    const status =
+      live?.status ??
+      stored.status ??
+      this.payments.getIntentStatus(stored.paymentIntentId);
     return {
       paymentIntentId: stored.paymentIntentId,
       status,
@@ -295,7 +354,10 @@ export class CheckoutService {
     const stored = draft?.payload['paymentIntent'] as
       | { paymentIntentId?: string }
       | undefined;
-    if (!stored?.paymentIntentId || stored.paymentIntentId !== paymentIntentId) {
+    if (
+      !stored?.paymentIntentId ||
+      stored.paymentIntentId !== paymentIntentId
+    ) {
       throw new BadRequestException('Payment intent mismatch for cart');
     }
     const result = await this.payments.confirmIntent(paymentIntentId);
@@ -309,11 +371,7 @@ export class CheckoutService {
     return { paymentIntentId, status: result.status };
   }
 
-  async submit(
-    cartId: string,
-    userId: string,
-    paymentMethod: 'card' | 'cod' | 'wire' = 'cod',
-  ) {
+  async submit(cartId: string, userId: string, dto: CheckoutSubmitDto) {
     this.ensureOwnership(cartId, userId);
     const draft = this.persistence.checkoutDrafts.get(cartId);
     if (!draft?.payload['resolved']) {
@@ -329,6 +387,7 @@ export class CheckoutService {
       throw new BadRequestException('Cart is empty');
     }
 
+    this.persistDraftMetadata(draft, dto);
     const paymentIntent = draft.payload['paymentIntent'] as
       | {
           method?: string;
@@ -339,7 +398,7 @@ export class CheckoutService {
           gateway?: string;
         }
       | undefined;
-    const method = paymentMethod ?? paymentIntent?.method ?? 'cod';
+    const method = dto.paymentMethod ?? paymentIntent?.method ?? 'cod';
     if (method === 'card') {
       const live = paymentIntent?.paymentIntentId
         ? this.payments.getIntent(paymentIntent.paymentIntentId)
@@ -362,7 +421,9 @@ export class CheckoutService {
     const shippingAmount = selected?.price?.amount ?? 0;
     const shippingLabel = selected?.label ?? shipOpt;
     const subtotal = cart.totals?.subtotal ?? 0;
-    const grandTotal = subtotal + shippingAmount;
+    const discount = cart.totals?.discount ?? 0;
+    const vat = cart.totals?.vat ?? 0;
+    const grandTotal = subtotal - discount + vat + shippingAmount;
     const fmt = (n: number) => `${n.toLocaleString('en-SA')} SAR`;
 
     if (method === 'card' && paymentIntent?.amount != null) {
@@ -396,9 +457,13 @@ export class CheckoutService {
     const totals = {
       currency: 'SAR' as const,
       subtotal,
+      discount,
+      vat,
       shipping: shippingAmount,
       grandTotal,
       formattedSubtotal: fmt(subtotal),
+      formattedDiscount: fmt(discount),
+      formattedVat: fmt(vat),
       formattedShipping: fmt(shippingAmount),
       formattedGrandTotal: fmt(grandTotal),
     };
@@ -409,6 +474,17 @@ export class CheckoutService {
         : method === 'card'
           ? `Card payment via ${paymentIntent?.gateway ?? this.payments.activeGateway()}`
           : `Payment method: ${method}`;
+    const purchaseOrderNumber =
+      (draft.payload['purchaseOrderNumber'] as string | undefined) ?? null;
+    const orderNotes =
+      (draft.payload['orderNotes'] as string | undefined) ?? null;
+    const checkoutNote = [
+      paymentNote,
+      purchaseOrderNumber ? `PO: ${purchaseOrderNumber}` : null,
+      orderNotes,
+    ]
+      .filter(Boolean)
+      .join('\n');
 
     if (this.odooOrders.isLive()) {
       try {
@@ -420,7 +496,7 @@ export class CheckoutService {
           shippingAmount,
           shippingLabel,
           shippingOptionId: shipOpt,
-          note: paymentNote,
+          note: checkoutNote,
         });
         const odoo = await this.odooOrders.createStorefrontOrder(payload);
         const order: OrderEntity = {
@@ -430,6 +506,8 @@ export class CheckoutService {
           orderNumber: odoo.order_number,
           status: odoo.state,
           createdAt: new Date().toISOString(),
+          purchaseOrderNumber,
+          orderNotes,
           items: orderItems,
           totals: {
             ...totals,
@@ -467,6 +545,8 @@ export class CheckoutService {
       orderNumber,
       status: 'draft',
       createdAt: new Date().toISOString(),
+      purchaseOrderNumber,
+      orderNotes,
       items: orderItems,
       totals,
       shippingOptionId: shipOpt,
@@ -484,13 +564,27 @@ export class CheckoutService {
     };
   }
 
+  private persistDraftMetadata(
+    draft: CheckoutDraftEntity,
+    dto: { purchaseOrderNumber?: string; orderNotes?: string },
+  ) {
+    if (dto.purchaseOrderNumber !== undefined) {
+      draft.payload['purchaseOrderNumber'] = dto.purchaseOrderNumber;
+    }
+    if (dto.orderNotes !== undefined) {
+      draft.payload['orderNotes'] = dto.orderNotes;
+    }
+  }
+
   private resolveShippingBlock(
     userId: string,
     dto: CheckoutAddressDto,
     savedIds: Record<string, string | undefined>,
   ): ResolvedAddr {
     if (dto.shippingAddressId) {
-      const a = this.persistence.getUserAddresses(userId).get(dto.shippingAddressId);
+      const a = this.persistence
+        .getUserAddresses(userId)
+        .get(dto.shippingAddressId);
       if (!a || !a.usageTypes.includes('shipping')) {
         throw new NotFoundException('Shipping address not found');
       }
@@ -498,7 +592,9 @@ export class CheckoutService {
     }
     if (dto.shippingAddress) {
       const ent = dto.shippingAddress;
-      const formatted = `${ent.addressLine1}, ${ent.city}, ${ent.countryCode}`;
+      const formatted =
+        ent.formattedAddress ??
+        `${ent.addressLine1}, ${ent.city}, ${ent.countryCode}`;
       if (dto.saveToAddressBook) {
         const created = this.persistInlineAddress(userId, ent);
         savedIds['shippingAddressId'] = created.id;
@@ -516,6 +612,7 @@ export class CheckoutService {
         city: ent.city,
         stateCode: ent.stateCode,
         postalCode: ent.postalCode,
+        ...this.extendedAddress(ent),
       };
     }
     throw new BadRequestException(
@@ -529,7 +626,9 @@ export class CheckoutService {
     savedIds: Record<string, string | undefined>,
   ): ResolvedAddr {
     if (dto.billingAddressId) {
-      const a = this.persistence.getUserAddresses(userId).get(dto.billingAddressId);
+      const a = this.persistence
+        .getUserAddresses(userId)
+        .get(dto.billingAddressId);
       if (!a || !a.usageTypes.includes('billing')) {
         throw new NotFoundException('Billing address not found');
       }
@@ -537,7 +636,9 @@ export class CheckoutService {
     }
     if (dto.billingAddress) {
       const ent = dto.billingAddress;
-      const formatted = `${ent.addressLine1}, ${ent.city}, ${ent.countryCode}`;
+      const formatted =
+        ent.formattedAddress ??
+        `${ent.addressLine1}, ${ent.city}, ${ent.countryCode}`;
       if (dto.saveToAddressBook) {
         const created = this.persistInlineAddress(userId, ent);
         savedIds['billingAddressId'] = created.id;
@@ -549,6 +650,7 @@ export class CheckoutService {
         countryCode: ent.countryCode,
         addressLine1: ent.addressLine1,
         city: ent.city,
+        ...this.extendedAddress(ent),
       };
     }
     throw new BadRequestException(
@@ -557,7 +659,8 @@ export class CheckoutService {
   }
 
   private addrEntity(a: AddressEntity): ResolvedAddr {
-    const formatted = `${a.addressLine1}, ${a.city}, ${a.countryCode}`;
+    const formatted =
+      a.formattedAddress ?? `${a.addressLine1}, ${a.city}, ${a.countryCode}`;
     return {
       addressId: a.id,
       label: a.label,
@@ -570,6 +673,7 @@ export class CheckoutService {
       city: a.city,
       stateCode: a.stateCode,
       postalCode: a.postalCode,
+      ...this.extendedAddress(a),
     };
   }
 
@@ -595,11 +699,51 @@ export class CheckoutService {
       postalCode: ent.postalCode,
       phone: ent.phone,
       deliveryInstructions: ent.deliveryInstructions,
+      ...this.extendedAddress(ent),
       isDefaultShipping: ent.isDefaultShipping ?? false,
       isDefaultBilling: ent.isDefaultBilling ?? false,
     };
     this.persistence.getUserAddresses(userId).set(addr.id, addr);
     return addr;
+  }
+
+  private extendedAddress(
+    address: Pick<
+      AddressEntity,
+      | 'buildingNo'
+      | 'street'
+      | 'secondary'
+      | 'district'
+      | 'landmark'
+      | 'latitude'
+      | 'longitude'
+      | 'placeId'
+      | 'formattedAddress'
+      | 'addressKind'
+      | 'warehouseSlug'
+      | 'portOfDestination'
+      | 'freightType'
+      | 'nationalAddress'
+      | 'companyFloor'
+    >,
+  ) {
+    return {
+      buildingNo: address.buildingNo,
+      street: address.street,
+      secondary: address.secondary,
+      district: address.district,
+      landmark: address.landmark,
+      latitude: address.latitude,
+      longitude: address.longitude,
+      placeId: address.placeId,
+      formattedAddress: address.formattedAddress,
+      addressKind: address.addressKind,
+      warehouseSlug: address.warehouseSlug,
+      portOfDestination: address.portOfDestination,
+      freightType: address.freightType,
+      nationalAddress: address.nationalAddress,
+      companyFloor: address.companyFloor,
+    };
   }
 
   private resolveContactsBlock(
@@ -610,7 +754,9 @@ export class CheckoutService {
     const out: Record<string, ResolvedCt> = {};
 
     if (dto.deliveryContactId) {
-      const c = this.persistence.getUserContacts(userId).get(dto.deliveryContactId);
+      const c = this.persistence
+        .getUserContacts(userId)
+        .get(dto.deliveryContactId);
       if (!c) {
         throw new NotFoundException('Contact not found');
       }
@@ -632,7 +778,9 @@ export class CheckoutService {
     }
 
     if (dto.billingContactId) {
-      const c = this.persistence.getUserContacts(userId).get(dto.billingContactId);
+      const c = this.persistence
+        .getUserContacts(userId)
+        .get(dto.billingContactId);
       if (!c) {
         throw new NotFoundException('Contact not found');
       }

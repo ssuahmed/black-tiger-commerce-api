@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsEmail,
+  IsEnum,
   IsNumber,
   IsOptional,
   IsString,
@@ -90,6 +91,66 @@ export class AddressInputDto {
   @IsOptional()
   @IsString()
   deliveryInstructions?: string;
+
+  @IsOptional()
+  @IsString()
+  buildingNo?: string;
+
+  @IsOptional()
+  @IsString()
+  street?: string;
+
+  @IsOptional()
+  @IsString()
+  secondary?: string;
+
+  @IsOptional()
+  @IsString()
+  district?: string;
+
+  @IsOptional()
+  @IsString()
+  landmark?: string;
+
+  @IsOptional()
+  @IsNumber()
+  latitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  longitude?: number;
+
+  @IsOptional()
+  @IsString()
+  placeId?: string;
+
+  @IsOptional()
+  @IsString()
+  formattedAddress?: string;
+
+  @IsOptional()
+  @IsEnum(['home', 'work', 'business', 'pickup'])
+  addressKind?: 'home' | 'work' | 'business' | 'pickup';
+
+  @IsOptional()
+  @IsString()
+  warehouseSlug?: string;
+
+  @IsOptional()
+  @IsString()
+  portOfDestination?: string;
+
+  @IsOptional()
+  @IsString()
+  freightType?: string;
+
+  @IsOptional()
+  @IsString()
+  nationalAddress?: string;
+
+  @IsOptional()
+  @IsString()
+  companyFloor?: string;
 
   @IsOptional()
   isDefaultShipping?: boolean;

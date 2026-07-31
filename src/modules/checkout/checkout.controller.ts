@@ -21,8 +21,10 @@ import {
   CheckoutPaymentIntentDto,
   CheckoutShippingDto,
   CheckoutSubmitDto,
+  ResolveCheckoutAddressDto,
 } from './checkout.dto';
 import { CheckoutService } from './checkout.service';
+import { GoogleGeocodingService } from '../../infrastructure/google-maps/google-geocoding.service';
 
 @Controller('checkout')
 @UseGuards(JwtAuthGuard)
@@ -30,6 +32,7 @@ export class CheckoutController {
   constructor(
     private readonly checkout: CheckoutService,
     private readonly persistence: PersistenceService,
+    private readonly geocoding: GoogleGeocodingService,
   ) {}
 
   private uid(req: Request): string {
@@ -39,6 +42,21 @@ export class CheckoutController {
   @Get(':cartId/summary')
   summary(@Param('cartId') cartId: string, @Req() req: Request) {
     return this.checkout.getSummary(cartId, this.uid(req));
+  }
+
+  @Post('address/resolve')
+  resolveAddress(@Body() dto: ResolveCheckoutAddressDto) {
+    return this.geocoding.resolve(dto);
+  }
+
+  @Get('warehouses')
+  warehouses() {
+    return this.checkout.listWarehouses();
+  }
+
+  @Get('warehouses/:slug')
+  warehouse(@Param('slug') slug: string) {
+    return this.checkout.getWarehouse(slug);
   }
 
   @Put(':cartId/address')
@@ -61,7 +79,7 @@ export class CheckoutController {
     @Body() dto: CheckoutShippingDto,
     @Req() req: Request,
   ) {
-    return this.checkout.putShipping(cartId, this.uid(req), dto.shippingOptionId);
+    return this.checkout.putShipping(cartId, this.uid(req), dto);
   }
 
   @Post(':cartId/payment-intent')
@@ -107,11 +125,7 @@ export class CheckoutController {
         return cached.body;
       }
     }
-    const body = await this.checkout.submit(
-      cartId,
-      this.uid(req),
-      _dto.paymentMethod,
-    );
+    const body = await this.checkout.submit(cartId, this.uid(req), _dto);
     if (key) {
       await this.persistence.setIdempotentResponse(
         key,

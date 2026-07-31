@@ -65,9 +65,9 @@ describe('ShippingRecommendationEngine', () => {
     ];
     const result = engine.build(baseOptions, lines, productsBySlug);
     expect(result.recommendation.efficiency.score).toBe(100);
-    expect(result.options.find((o) => o.id === 'pallet-standard')?.recommended).toBe(
-      true,
-    );
+    expect(
+      result.options.find((o) => o.id === 'pallet-standard')?.recommended,
+    ).toBe(true);
   });
 
   it('scores partial fill and emits add-more hint', () => {

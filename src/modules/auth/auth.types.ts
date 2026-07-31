@@ -11,4 +11,6 @@ export interface JwtPayload {
   email: string;
   segment: UserSegment;
   approvalStatus: ApprovalJwt;
+  /** Present when authenticated against durable Odoo ``res.partner``. */
+  odooPartnerId?: number;
 }

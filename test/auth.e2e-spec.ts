@@ -60,10 +60,13 @@ describe('Auth (e2e)', () => {
     const tokens = data<{
       accessToken: string;
       refreshToken: string;
-      user: { email: string };
+      user: { email: string; id: string };
     }>(loginRes.body);
     expect(tokens.accessToken).toBeTruthy();
     expect(tokens.user.email).toBe('demo@blacktiger.com.sa');
+    expect(tokens.user.id).toBeTruthy();
+    // Fixture mode keeps local UUID subjects; live mode uses partner:{id}.
+    expect(tokens.user.id.includes('password')).toBe(false);
 
     const refreshRes = await request(server)
       .post('/v1/auth/refresh')
@@ -89,7 +92,28 @@ describe('Auth (e2e)', () => {
         acceptTerms: true,
       })
       .expect(201);
-    const tokens = data<{ user: { email: string } }>(res.body);
+    const tokens = data<{ user: { email: string; id: string } }>(res.body);
     expect(tokens.user.email).toBe(email);
+    expect(tokens.user.id).toBeTruthy();
+  });
+
+  it('routes identifier register vs login in fixture mode', async () => {
+    const server = app.getHttpServer();
+    const fresh = `fresh-${Date.now()}@blacktiger.com.sa`;
+    const registerRoute = await request(server)
+      .post('/v1/auth/identifier')
+      .send({ identifier: fresh, intent: 'register' })
+      .expect(201);
+    expect(data<{ nextStep: string }>(registerRoute.body).nextStep).toBe(
+      'register_form',
+    );
+
+    const loginRoute = await request(server)
+      .post('/v1/auth/identifier')
+      .send({ identifier: 'demo@blacktiger.com.sa', intent: 'register' })
+      .expect(201);
+    expect(data<{ nextStep: string }>(loginRoute.body).nextStep).toBe(
+      'login_method',
+    );
   });
 });

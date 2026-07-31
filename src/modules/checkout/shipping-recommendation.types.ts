@@ -1,3 +1,8 @@
+import type {
+  CartLogistics,
+  PalletBreakdown,
+} from '../cart/cart-logistics.types';
+
 export interface ShippingLineUtilization {
   lineId: string;
   productSlug: string;
@@ -32,6 +37,8 @@ export interface ShippingRecommendation {
   message: string;
   lines: ShippingLineUtilization[];
   suggestedProducts: SuggestedProductCard[];
+  palletBreakdown: PalletBreakdown;
+  logistics: CartLogistics;
 }
 
 export interface EnrichedShippingOption {

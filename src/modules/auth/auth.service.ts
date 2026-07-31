@@ -19,11 +19,18 @@ import {
   RESET_SESSION_EXPIRY_SEC,
 } from '../../common/constants';
 import {
+  partnerAccountId,
+  parsePartnerAccountId,
+} from '../../common/utils/account-identity';
+import {
   hashPassword,
   verifyPassword,
 } from '../../common/utils/crypto-password';
 import { MailService } from '../../infrastructure/mail/mail.service';
-import { OdooCustomerService } from '../../infrastructure/odoo/odoo-customer.service';
+import {
+  OdooCustomerService,
+  type StorefrontAuthProfile,
+} from '../../infrastructure/odoo/odoo-customer.service';
 import {
   PersistenceService,
   type StoredUser,
@@ -52,6 +59,10 @@ export class AuthService {
     private readonly odooCustomers: OdooCustomerService,
     private readonly mail: MailService,
   ) {}
+
+  private isLiveAuth(): boolean {
+    return this.odooCustomers.isLive();
+  }
 
   private generateOtpCode(): string {
     // Stable code in development so local smoke/e2e stay simple; still emailed.
@@ -101,7 +112,58 @@ export class AuthService {
     }
   }
 
-  /** Create local user + sync ``res.partner`` when Odoo is live. */
+  private authProfileToUser(profile: StorefrontAuthProfile): StoredUser {
+    if (!profile.partnerId || !profile.email) {
+      throw new ServiceUnavailableException(
+        'Odoo auth profile is missing partner identity.',
+      );
+    }
+    const id = partnerAccountId(profile.partnerId);
+    return {
+      id,
+      email: profile.email,
+      segment: profile.segment ?? 'b2c',
+      approvalStatus: profile.approvalStatus ?? null,
+      displayName: profile.name ?? profile.email.split('@')[0],
+      phone: profile.phone ? String(profile.phone) : undefined,
+      odooPartnerId: profile.partnerId,
+    };
+  }
+
+  private cacheFromProfile(profile: StorefrontAuthProfile): StoredUser {
+    const user = this.authProfileToUser(profile);
+    this.persistence.cacheSessionUser(user);
+    return user;
+  }
+
+  /** Hydrate ephemeral session user after JWT validation (API restart safe). */
+  async ensureSessionUser(payload: JwtPayload): Promise<void> {
+    if (this.persistence.usersById.has(payload.sub)) {
+      return;
+    }
+    if (!this.isLiveAuth()) {
+      return;
+    }
+    try {
+      const partnerId = parsePartnerAccountId(payload.sub);
+      const profile = await this.odooCustomers.getAuthProfile(
+        partnerId
+          ? { partnerId }
+          : { email: payload.email },
+      );
+      if (profile.ok && profile.partnerId) {
+        this.cacheFromProfile(profile);
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Failed to hydrate session user ${payload.sub}: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
+  /** Create fixture user, or register durable credentials in Odoo when live. */
   private async persistNewUser(input: {
     email: string;
     passwordHash: string;
@@ -109,31 +171,35 @@ export class AuthService {
     phone?: string;
   }): Promise<StoredUser> {
     const emailKey = input.email.toLowerCase();
-    const user: StoredUser = {
-      id: newId(),
-      email: input.email,
-      passwordHash: input.passwordHash,
-      segment: 'b2c',
-      approvalStatus: null,
-      displayName: input.displayName ?? input.email.split('@')[0],
-      phone: input.phone,
-    };
 
-    if (this.odooCustomers.isLive()) {
+    if (this.isLiveAuth()) {
       try {
-        const partnerId = await this.odooCustomers.ensureStorefrontSignup({
-          email: user.email,
-          name: user.displayName,
-          phone: user.phone,
+        const profile = await this.odooCustomers.storefrontRegister({
+          email: input.email,
+          name: input.displayName ?? input.email.split('@')[0],
+          phone: input.phone,
+          passwordHash: input.passwordHash,
           segment: 'b2c',
           approvalStatus: 'approved',
         });
-        if (partnerId) {
-          user.odooPartnerId = partnerId;
+        if (!profile.ok) {
+          if (profile.reason === 'already_registered') {
+            throw new ConflictException('Email already registered');
+          }
+          throw new ServiceUnavailableException(
+            `Unable to create customer account in Odoo (${profile.reason || 'unknown'}).`,
+          );
         }
+        return this.cacheFromProfile(profile);
       } catch (err) {
+        if (
+          err instanceof ConflictException ||
+          err instanceof ServiceUnavailableException
+        ) {
+          throw err;
+        }
         this.logger.error(
-          `Failed to persist signup to Odoo for ${user.email}: ${
+          `Failed to persist signup to Odoo for ${input.email}: ${
             err instanceof Error ? err.message : String(err)
           }`,
         );
@@ -143,19 +209,77 @@ export class AuthService {
       }
     }
 
-    this.persistence.usersById.set(user.id, user);
-    this.persistence.usersByEmail.set(emailKey, user.id);
-    this.persistence.notificationPrefs.set(user.id, {
-      orderUpdates: true,
-      promotions: false,
-      creditAlerts: true,
-      smsEnabled: false,
-    });
-    this.persistence.creditsLedger.set(user.id, {
-      balanceAmount: 0,
-      currency: 'SAR',
-    });
+    const user: StoredUser = {
+      id: newId(),
+      email: input.email,
+      passwordHash: input.passwordHash,
+      segment: 'b2c',
+      approvalStatus: null,
+      displayName: input.displayName ?? input.email.split('@')[0],
+      phone: input.phone,
+    };
+    this.persistence.cacheSessionUser(user);
     return user;
+  }
+
+  private async userExists(identifierKey: string): Promise<boolean> {
+    if (this.isLiveAuth()) {
+      try {
+        const row = await this.odooCustomers.storefrontUserExists(identifierKey);
+        return row.exists;
+      } catch (err) {
+        this.logger.error(
+          `Odoo user exists check failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+        throw new ServiceUnavailableException(
+          'Unable to verify account with Odoo. Please try again.',
+        );
+      }
+    }
+    return this.persistence.usersByEmail.has(identifierKey);
+  }
+
+  private async findFixtureUserByIdentifier(
+    key: string,
+  ): Promise<StoredUser | undefined> {
+    const userId = this.persistence.usersByEmail.get(key);
+    return userId ? this.persistence.usersById.get(userId) : undefined;
+  }
+
+  private async findUserByIdentifier(
+    key: string,
+  ): Promise<StoredUser | undefined> {
+    if (this.isLiveAuth()) {
+      try {
+        const profile = await this.odooCustomers.getAuthProfile({ email: key });
+        if (profile.ok && profile.partnerId && profile.storefrontEnabled !== false) {
+          return this.cacheFromProfile(profile);
+        }
+        // Also accept partners that exist via storefrontUserExists + profile
+        const exists = await this.odooCustomers.storefrontUserExists(key);
+        if (exists.exists && exists.email) {
+          const again = await this.odooCustomers.getAuthProfile({
+            email: exists.email,
+          });
+          if (again.ok && again.partnerId) {
+            return this.cacheFromProfile(again);
+          }
+        }
+        return undefined;
+      } catch (err) {
+        this.logger.error(
+          `Odoo profile lookup failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+        throw new ServiceUnavailableException(
+          'Unable to load account from Odoo. Please try again.',
+        );
+      }
+    }
+    return this.findFixtureUserByIdentifier(key);
   }
 
   private isDevOtp(code: string): boolean {
@@ -208,11 +332,11 @@ export class AuthService {
     return id.includes('@') ? 'email' : 'mobile';
   }
 
-  submitIdentifier(dto: IdentifierDto) {
+  async submitIdentifier(dto: IdentifierDto) {
     const identifier = dto.identifier.trim();
     const type = this.detectType(identifier);
     const key = type === 'email' ? identifier.toLowerCase() : identifier;
-    const exists = this.persistence.usersByEmail.has(key);
+    const exists = await this.userExists(key);
     const challengeId = newId();
 
     if (dto.intent === 'register') {
@@ -270,7 +394,7 @@ export class AuthService {
       throw new BadRequestException('Passwords do not match');
     }
     const email = dto.email.toLowerCase();
-    if (this.persistence.usersByEmail.has(email)) {
+    if (await this.userExists(email)) {
       throw new ConflictException('Email already registered');
     }
     const user = await this.persistNewUser({
@@ -285,18 +409,55 @@ export class AuthService {
     const identifier = dto.identifier.trim();
     const type = this.detectType(identifier);
     const key = type === 'email' ? identifier.toLowerCase() : identifier;
-    const userId = this.persistence.usersByEmail.get(key);
-    if (!userId) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
     if (dto.challengeId) {
       const ch = this.persistence.authChallenges.get(dto.challengeId);
       if (!ch || ch.identifier !== key || ch.intent !== 'login') {
         throw new UnauthorizedException('Invalid credentials');
       }
     }
-    const user = this.persistence.usersById.get(userId);
-    if (!user || !verifyPassword(dto.password, user.passwordHash)) {
+
+    if (this.isLiveAuth()) {
+      if (type !== 'email') {
+        // Mobile password login: resolve email via existence RPC when possible
+        const exists = await this.odooCustomers.storefrontUserExists(key);
+        if (!exists.exists || !exists.email) {
+          throw new UnauthorizedException('Invalid credentials');
+        }
+        const profile = await this.odooCustomers.storefrontAuthenticate({
+          email: exists.email,
+          password: dto.password,
+        });
+        if (!profile.ok) {
+          throw new UnauthorizedException('Invalid credentials');
+        }
+        return this.buildAuthTokens(this.cacheFromProfile(profile));
+      }
+      try {
+        const profile = await this.odooCustomers.storefrontAuthenticate({
+          email: key,
+          password: dto.password,
+        });
+        if (!profile.ok) {
+          throw new UnauthorizedException('Invalid credentials');
+        }
+        return this.buildAuthTokens(this.cacheFromProfile(profile));
+      } catch (err) {
+        if (err instanceof UnauthorizedException) {
+          throw err;
+        }
+        this.logger.error(
+          `Odoo authenticate failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+        throw new ServiceUnavailableException(
+          'Unable to authenticate with Odoo. Please try again.',
+        );
+      }
+    }
+
+    const user = await this.findFixtureUserByIdentifier(key);
+    if (!user || !user.passwordHash || !verifyPassword(dto.password, user.passwordHash)) {
       throw new UnauthorizedException('Invalid credentials');
     }
     return this.buildAuthTokens(user);
@@ -389,13 +550,13 @@ export class AuthService {
         ch.identifierType === 'email'
           ? ch.identifier.toLowerCase()
           : ch.identifier;
-      const userId = this.persistence.usersByEmail.get(lookup);
-      if (!userId) {
+      const user = await this.findUserByIdentifier(lookup);
+      if (!user) {
         throw new UnauthorizedException('Invalid or expired OTP');
       }
       const token = newId();
       this.persistence.resetSessions.set(token, {
-        userId,
+        userId: user.id,
         expiresAt: Date.now() + RESET_SESSION_EXPIRY_SEC * 1000,
       });
       return {
@@ -417,7 +578,7 @@ export class AuthService {
           : `${ch.identifier}.mobile@blacktiger.local`;
       const displayEmail =
         ch.identifierType === 'email' ? ch.identifier : emailKey;
-      if (this.persistence.usersByEmail.has(emailKey)) {
+      if (await this.userExists(emailKey)) {
         throw new ConflictException('Email already registered');
       }
       const user = await this.persistNewUser({
@@ -434,8 +595,7 @@ export class AuthService {
       ch.identifierType === 'email'
         ? ch.identifier.toLowerCase()
         : ch.identifier;
-    const userId = this.persistence.usersByEmail.get(lookup);
-    const user = userId ? this.persistence.usersById.get(userId) : undefined;
+    const user = await this.findUserByIdentifier(lookup);
     if (!user) {
       throw new UnauthorizedException('Invalid or expired OTP');
     }
@@ -447,7 +607,7 @@ export class AuthService {
     const id = dto.identifier.trim();
     const type = this.detectType(id);
     const key = type === 'email' ? id.toLowerCase() : id;
-    const userId = this.persistence.usersByEmail.get(key);
+    const user = await this.findUserByIdentifier(key);
     const method =
       dto.preferredMethod === 'otp'
         ? ('otp' as const)
@@ -457,7 +617,7 @@ export class AuthService {
             ? ('email_link' as const)
             : ('otp' as const);
 
-    if (!userId) {
+    if (!user) {
       return {
         message: 'If an account exists, instructions have been sent.',
         deliveryMethod: method,
@@ -480,10 +640,9 @@ export class AuthService {
         otpExpiresAt: now + OTP_EXPIRY_SEC * 1000,
         lastOtpSentAt: now,
       });
-      const user = this.persistence.usersById.get(userId);
       await this.deliverOtp(
         {
-          identifier: user?.email ?? key,
+          identifier: user.email ?? key,
           identifierType: type === 'email' ? 'email' : 'mobile',
         },
         'reset_password',
@@ -500,15 +659,14 @@ export class AuthService {
     const token = newId();
     const expiresInSeconds = 3600;
     this.persistence.resetTokens.set(token, {
-      userId,
+      userId: user.id,
       expiresAt: Date.now() + expiresInSeconds * 1000,
     });
     const storefront = (
       this.config.get<string>('STOREFRONT_URL') || 'http://localhost:3000'
     ).replace(/\/$/, '');
     const resetUrl = `${storefront}/reset-password?token=${encodeURIComponent(token)}`;
-    const user = this.persistence.usersById.get(userId);
-    if (user?.email && this.mail.isConfigured()) {
+    if (user.email && this.mail.isConfigured()) {
       try {
         await this.mail.sendPasswordResetLink({
           to: user.email,
@@ -531,12 +689,21 @@ export class AuthService {
     };
   }
 
-  validateResetToken(token: string) {
+  async validateResetToken(token: string) {
     const row = this.persistence.resetTokens.get(token);
     if (!row || row.expiresAt < Date.now()) {
       throw new BadRequestException('Invalid or expired token');
     }
-    const user = this.persistence.usersById.get(row.userId);
+    let user = this.persistence.usersById.get(row.userId);
+    if (!user && this.isLiveAuth()) {
+      const partnerId = parsePartnerAccountId(row.userId);
+      if (partnerId) {
+        const profile = await this.odooCustomers.getAuthProfile({ partnerId });
+        if (profile.ok) {
+          user = this.cacheFromProfile(profile);
+        }
+      }
+    }
     return {
       valid: true,
       expiresInSeconds: Math.max(
@@ -585,17 +752,58 @@ export class AuthService {
         ch.identifierType === 'email'
           ? ch.identifier.toLowerCase()
           : ch.identifier;
-      userId = this.persistence.usersByEmail.get(lookup);
+      const user = await this.findUserByIdentifier(lookup);
+      userId = user?.id;
     }
 
     if (!userId) {
       throw new BadRequestException('Missing reset credentials');
     }
-    const user = this.persistence.usersById.get(userId);
+
+    let user = this.persistence.usersById.get(userId);
+    if (!user && this.isLiveAuth()) {
+      const partnerId = parsePartnerAccountId(userId);
+      if (partnerId) {
+        const profile = await this.odooCustomers.getAuthProfile({ partnerId });
+        if (profile.ok) {
+          user = this.cacheFromProfile(profile);
+        }
+      }
+    }
     if (!user) {
       throw new UnauthorizedException('Invalid token, OTP, or session');
     }
-    user.passwordHash = hashPassword(dto.password);
+
+    const passwordHash = hashPassword(dto.password);
+    if (this.isLiveAuth()) {
+      try {
+        const profile = await this.odooCustomers.storefrontSetPassword({
+          email: user.email,
+          passwordHash,
+        });
+        if (!profile.ok) {
+          throw new ServiceUnavailableException(
+            'Unable to update password in Odoo. Please try again.',
+          );
+        }
+        user = this.cacheFromProfile(profile);
+      } catch (err) {
+        if (err instanceof ServiceUnavailableException) {
+          throw err;
+        }
+        this.logger.error(
+          `Odoo set password failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+        throw new ServiceUnavailableException(
+          'Unable to update password in Odoo. Please try again.',
+        );
+      }
+    } else {
+      user.passwordHash = passwordHash;
+    }
+
     const autoLogin = dto.autoLogin !== false;
     const tokens = autoLogin ? await this.buildAuthTokens(user) : undefined;
     return {
@@ -622,7 +830,17 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
     row.revoked = true;
-    const user = this.persistence.usersById.get(decoded.sub);
+
+    let user = this.persistence.usersById.get(decoded.sub);
+    if (!user && this.isLiveAuth()) {
+      const partnerId = parsePartnerAccountId(decoded.sub);
+      if (partnerId) {
+        const profile = await this.odooCustomers.getAuthProfile({ partnerId });
+        if (profile.ok) {
+          user = this.cacheFromProfile(profile);
+        }
+      }
+    }
     if (!user) {
       throw new UnauthorizedException('Invalid refresh token');
     }
@@ -643,6 +861,7 @@ export class AuthService {
       email: user.email,
       segment: user.segment,
       approvalStatus: user.approvalStatus,
+      odooPartnerId: user.odooPartnerId,
     };
     const accessSecret = this.config.getOrThrow<string>('JWT_ACCESS_SECRET');
     const refreshSecret = this.config.getOrThrow<string>('JWT_REFRESH_SECRET');
@@ -666,6 +885,7 @@ export class AuthService {
       segment: user.segment,
       approvalStatus: user.approvalStatus,
       displayName: user.displayName ?? user.email,
+      odooPartnerId: user.odooPartnerId ?? null,
     };
     return {
       accessToken,

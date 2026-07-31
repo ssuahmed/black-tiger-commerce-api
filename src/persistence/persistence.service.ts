@@ -7,7 +7,11 @@ import type { UserSegment } from '../modules/auth/auth.types';
 export interface StoredUser {
   id: string;
   email: string;
-  passwordHash: string;
+  /**
+   * Fixture-mode only. Live mode stores hashes on ``res.partner`` in Odoo and
+   * never treats this field as durable credentials.
+   */
+  passwordHash?: string;
   segment: UserSegment;
   approvalStatus: 'pending' | 'approved' | 'rejected' | null;
   phone?: string;
@@ -53,6 +57,7 @@ export interface CartEntity {
   id: string;
   userId?: string;
   items: CartLineEntity[];
+  promoCode?: string | null;
   updatedAt: string;
 }
 
@@ -102,6 +107,21 @@ export interface AddressEntity {
   postalCode?: string;
   phone?: string;
   deliveryInstructions?: string;
+  buildingNo?: string;
+  street?: string;
+  secondary?: string;
+  district?: string;
+  landmark?: string;
+  latitude?: number;
+  longitude?: number;
+  placeId?: string;
+  formattedAddress?: string;
+  addressKind?: 'home' | 'work' | 'business' | 'pickup';
+  warehouseSlug?: string;
+  portOfDestination?: string;
+  freightType?: string;
+  nationalAddress?: string;
+  companyFloor?: string;
   isDefaultShipping: boolean;
   isDefaultBilling: boolean;
 }
@@ -205,13 +225,19 @@ export interface OrderEntity {
   orderNumber: string;
   status: string;
   createdAt: string;
+  purchaseOrderNumber?: string | null;
+  orderNotes?: string | null;
   items: OrderLineEntity[];
   totals: {
     currency: string;
     subtotal: number;
+    discount?: number;
+    vat?: number;
     shipping: number;
     grandTotal: number;
     formattedSubtotal: string;
+    formattedDiscount?: string;
+    formattedVat?: string;
     formattedShipping: string;
     formattedGrandTotal: string;
   };
@@ -227,7 +253,10 @@ export class PersistenceService implements OnModuleInit {
   readonly usersByEmail = new Map<string, string>();
   readonly authChallenges = new Map<string, AuthChallengeRecord>();
   readonly resetTokens = new Map<string, ResetTokenRecord>();
-  readonly resetSessions = new Map<string, { userId: string; expiresAt: number }>();
+  readonly resetSessions = new Map<
+    string,
+    { userId: string; expiresAt: number }
+  >();
   readonly refreshTokens = new Map<string, RefreshTokenRecord>();
 
   readonly carts = new Map<string, CartEntity>();
@@ -271,7 +300,34 @@ export class PersistenceService implements OnModuleInit {
     if (this.redis.enabled) {
       this.logger.log('Redis enabled for idempotency keys');
     }
-    this.seedDemoUser();
+    // Durable credentials live in Odoo when live; seed only for fixture/e2e.
+    if (process.env.ODOO_MODE !== 'live') {
+      this.seedDemoUser();
+    } else {
+      this.logger.log(
+        'ODOO_MODE=live — skipping in-memory demo credentials (Odoo is SSOT)',
+      );
+    }
+  }
+
+  /** Ephemeral session projection for account/cart lookups (not credential SSOT). */
+  cacheSessionUser(user: StoredUser): void {
+    this.usersById.set(user.id, user);
+    this.usersByEmail.set(user.email.toLowerCase(), user.id);
+    if (!this.notificationPrefs.has(user.id)) {
+      this.notificationPrefs.set(user.id, {
+        orderUpdates: true,
+        promotions: false,
+        creditAlerts: true,
+        smsEnabled: false,
+      });
+    }
+    if (!this.creditsLedger.has(user.id)) {
+      this.creditsLedger.set(user.id, {
+        balanceAmount: 0,
+        currency: 'SAR',
+      });
+    }
   }
 
   private seedDemoUser(): void {
@@ -292,14 +348,7 @@ export class PersistenceService implements OnModuleInit {
       preferredLanguage: 'en',
       marketingOptIn: false,
     };
-    this.usersById.set(id, user);
-    this.usersByEmail.set(email.toLowerCase(), id);
-    this.notificationPrefs.set(id, {
-      orderUpdates: true,
-      promotions: false,
-      creditAlerts: true,
-      smsEnabled: false,
-    });
+    this.cacheSessionUser(user);
     this.creditsLedger.set(id, { balanceAmount: 1250.5, currency: 'SAR' });
   }
 

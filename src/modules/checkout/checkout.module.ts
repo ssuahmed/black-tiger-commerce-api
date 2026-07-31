@@ -10,9 +10,18 @@ import { PaymentModule } from '../payment/payment.module';
 import { CheckoutController } from './checkout.controller';
 import { CheckoutService } from './checkout.service';
 import { ShippingRecommendationEngine } from './shipping-recommendation.engine';
+import { PromotionsModule } from '../promotions/promotions.module';
+import { GoogleGeocodingService } from '../../infrastructure/google-maps/google-geocoding.service';
 
 @Module({
-  imports: [PersistenceModule, AuthModule, CartModule, CatalogModule, PaymentModule],
+  imports: [
+    PersistenceModule,
+    AuthModule,
+    CartModule,
+    CatalogModule,
+    PaymentModule,
+    PromotionsModule,
+  ],
   controllers: [CheckoutController],
   providers: [
     CheckoutService,
@@ -20,6 +29,7 @@ import { ShippingRecommendationEngine } from './shipping-recommendation.engine';
     OdooOrderService,
     OdooShippingService,
     ShippingRecommendationEngine,
+    GoogleGeocodingService,
   ],
 })
 export class CheckoutModule {}

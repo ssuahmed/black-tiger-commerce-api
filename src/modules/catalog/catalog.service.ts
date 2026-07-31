@@ -14,6 +14,7 @@ import {
   resolvePackagingPricing,
   resolveQuoteUnitPrice,
 } from './catalog-pricing';
+import { matchesTaxonomyFacet } from './catalog-taxonomy';
 
 function categoryBreadcrumbs(slug: string, name: string) {
   return [
@@ -79,32 +80,7 @@ function matchesCategory(p: ProductFixture, categorySlug: string): boolean {
 }
 
 function matchesFacet(p: ProductFixture, key: string, values: string[]): boolean {
-  if (values.length === 0) {
-    return true;
-  }
-  if (key === 'viscosity') {
-    const vis = p.slug.includes('10w30')
-      ? '10w-30'
-      : p.slug.includes('5w30')
-        ? '5w-30'
-        : p.slug.includes('20w50')
-          ? '20w-50'
-          : p.slug.includes('15w40')
-            ? '15w-40'
-            : 'other';
-    return values.includes(vis);
-  }
-  if (key === 'segment') {
-    const tags = p.segmentTags?.length
-      ? p.segmentTags
-      : p.categorySlug === 'commercial'
-        ? ['commercial']
-        : p.categorySlug === 'industrial'
-          ? ['industrial']
-          : ['passenger-cars'];
-    return values.some((v) => tags.includes(v));
-  }
-  return true;
+  return matchesTaxonomyFacet(p, key, values);
 }
 
 @Injectable()
@@ -134,12 +110,33 @@ export class CatalogService {
     if (categorySlug) {
       items = items.filter((p) => matchesCategory(p, categorySlug));
     }
+    const q =
+      typeof query.q === 'string'
+        ? query.q
+        : Array.isArray(query.q)
+          ? String(query.q[0] ?? '')
+          : '';
+    if (q.trim()) {
+      items = items.filter((p) => matchesSearchQuery(p, q));
+    }
     const viscosity = normalizeArr(query.viscosity);
     const segment = normalizeArr(query.segment);
+    const application = normalizeArr(query.application);
+    const segmentApplication = normalizeArr(query.segmentApplication);
+    const productLine = normalizeArr(query.productLine);
+    /** Category path acts as the active segment for facet scoping + filtering. */
+    const activeSegments = [
+      ...new Set(
+        [...(categorySlug ? [categorySlug] : []), ...segment].filter(Boolean),
+      ),
+    ];
     items = items.filter(
       (p) =>
         matchesFacet(p, 'viscosity', viscosity) &&
-        matchesFacet(p, 'segment', segment),
+        matchesFacet(p, 'segment', segment) &&
+        matchesFacet(p, 'application', application) &&
+        matchesFacet(p, 'segmentApplication', segmentApplication) &&
+        matchesFacet(p, 'productLine', productLine),
     );
     const sort =
       typeof query.sort === 'string' ? query.sort : 'relevance';
@@ -170,7 +167,9 @@ export class CatalogService {
       },
       breadcrumbs: catMeta.breadcrumbs,
       activeFilters: [],
-      facets: buildFacets(Object.values(productsBySlug)),
+      facets: buildFacets(Object.values(productsBySlug), {
+        activeSegments,
+      }),
       items: slice.map(productToCard),
       pagination: {
         pageSize,
@@ -235,6 +234,10 @@ export class CatalogService {
       pricing: {
         ...p.pricing,
         ...scopedPricing,
+        // Pallet tiers are variant-scoped: an absent tier on the selected packaging
+        // must not inherit the template table.
+        partialPallet: scopedPricing.partialPallet ?? null,
+        fullPallet: scopedPricing.fullPallet ?? null,
         unitPrice,
         formattedUnitPrice: `${unitPrice.toLocaleString('en-SA')} ${p.currency}`,
         formattedTotal: `${extended.toLocaleString('en-SA')} ${p.currency}`,
@@ -253,14 +256,8 @@ export class CatalogService {
 
   async search(q: string) {
     const items = await this.catalog.getAllProducts();
-    const needle = q.trim().toLowerCase();
-    const matches = items.filter(
-      (p) =>
-        needle.length > 0 &&
-        (p.name.toLowerCase().includes(needle) ||
-          p.productCode.toLowerCase().includes(needle) ||
-          p.slug.includes(needle)),
-    );
+    const matches =
+      q.trim().length > 0 ? items.filter((p) => matchesSearchQuery(p, q)) : [];
     return {
       query: q,
       items: matches.map(productToCard),
@@ -273,6 +270,30 @@ export class CatalogService {
       },
     };
   }
+}
+
+/** Case-insensitive match on name, product code, slug, and category labels. */
+export function matchesSearchQuery(p: ProductFixture, q: string): boolean {
+  const needle = q.trim().toLowerCase();
+  if (!needle) return true;
+  const haystack = [
+    p.name,
+    p.productCode,
+    p.slug,
+    p.categorySlug,
+    p.categoryLabel,
+    p.shortDescription,
+    p.subtitle,
+    p.sizeLabel,
+    ...(Array.isArray(p.segmentTags) ? p.segmentTags : []),
+    ...(Array.isArray(p.applicationTags) ? p.applicationTags : []),
+    p.productLine,
+    p.viscosity,
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return haystack.includes(needle);
 }
 
 function normalizeArr(v: string | string[] | undefined): string[] {

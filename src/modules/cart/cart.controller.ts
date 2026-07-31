@@ -9,6 +9,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Req,
   Res,
   UseGuards,
@@ -19,6 +20,8 @@ import { PersistenceService } from '../../persistence/persistence.service';
 import { OptionalJwtGuard } from '../auth/optional-jwt.guard';
 import { AddCartItemDto, CreateCartDto, PatchCartItemDto } from './cart.dto';
 import { CartService } from './cart.service';
+import { ApplyPromotionDto } from '../promotions/promotions.dto';
+import { PromotionsService } from '../promotions/promotions.service';
 
 @Controller('cart')
 @UseGuards(OptionalJwtGuard)
@@ -26,6 +29,7 @@ export class CartController {
   constructor(
     private readonly cart: CartService,
     private readonly persistence: PersistenceService,
+    private readonly promotions: PromotionsService,
   ) {}
 
   private uid(req: Request): string | undefined {
@@ -91,12 +95,25 @@ export class CartController {
     return this.cart.removeItem(cartId, lineId, this.uid(req));
   }
 
+  @Put(':cartId/promo')
+  async applyPromo(
+    @Param('cartId') cartId: string,
+    @Body() dto: ApplyPromotionDto,
+    @Req() req: Request,
+  ) {
+    this.promotions.apply(cartId, dto.code, this.uid(req));
+    return this.cart.getCart(cartId, this.uid(req));
+  }
+
+  @Delete(':cartId/promo')
+  removePromo(@Param('cartId') cartId: string, @Req() req: Request) {
+    this.promotions.remove(cartId, this.uid(req));
+    return this.cart.getCart(cartId, this.uid(req));
+  }
+
   @Delete(':cartId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  async removeCart(
-    @Param('cartId') cartId: string,
-    @Req() req: Request,
-  ): Promise<void> {
+  removeCart(@Param('cartId') cartId: string, @Req() req: Request): void {
     this.cart.deleteCart(cartId, this.uid(req));
   }
 }

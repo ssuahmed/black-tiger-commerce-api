@@ -4,6 +4,7 @@ import {
   IsBoolean,
   IsEmail,
   IsEnum,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -55,6 +56,66 @@ export class CheckoutInlineAddressDto {
   @IsOptional()
   @IsString()
   deliveryInstructions?: string;
+
+  @IsOptional()
+  @IsString()
+  buildingNo?: string;
+
+  @IsOptional()
+  @IsString()
+  street?: string;
+
+  @IsOptional()
+  @IsString()
+  secondary?: string;
+
+  @IsOptional()
+  @IsString()
+  district?: string;
+
+  @IsOptional()
+  @IsString()
+  landmark?: string;
+
+  @IsOptional()
+  @IsNumber()
+  latitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  longitude?: number;
+
+  @IsOptional()
+  @IsString()
+  placeId?: string;
+
+  @IsOptional()
+  @IsString()
+  formattedAddress?: string;
+
+  @IsOptional()
+  @IsEnum(['home', 'work', 'business', 'pickup'])
+  addressKind?: 'home' | 'work' | 'business' | 'pickup';
+
+  @IsOptional()
+  @IsString()
+  warehouseSlug?: string;
+
+  @IsOptional()
+  @IsString()
+  portOfDestination?: string;
+
+  @IsOptional()
+  @IsString()
+  freightType?: string;
+
+  @IsOptional()
+  @IsString()
+  nationalAddress?: string;
+
+  @IsOptional()
+  @IsString()
+  companyFloor?: string;
 
   @IsOptional()
   @IsBoolean()
@@ -113,6 +174,14 @@ export class CheckoutInlineContactDto {
 
 export class CheckoutAddressDto {
   @IsOptional()
+  @IsString()
+  purchaseOrderNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  orderNotes?: string;
+
+  @IsOptional()
   @IsUUID()
   shippingAddressId?: string;
 
@@ -168,6 +237,14 @@ export class CheckoutAddressDto {
 export class CheckoutShippingDto {
   @IsString()
   shippingOptionId!: string;
+
+  @IsOptional()
+  @IsString()
+  purchaseOrderNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  orderNotes?: string;
 }
 
 export class CheckoutSubmitDto {
@@ -178,6 +255,14 @@ export class CheckoutSubmitDto {
   @IsOptional()
   @IsEnum(['card', 'cod', 'wire'])
   paymentMethod?: 'card' | 'cod' | 'wire';
+
+  @IsOptional()
+  @IsString()
+  purchaseOrderNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  orderNotes?: string;
 }
 
 export class CheckoutPaymentIntentDto {
@@ -188,4 +273,22 @@ export class CheckoutPaymentIntentDto {
 export class CheckoutConfirmPaymentDto {
   @IsString()
   paymentIntentId!: string;
+}
+
+export class ResolveCheckoutAddressDto {
+  @IsOptional()
+  @IsString()
+  query?: string;
+
+  @IsOptional()
+  @IsString()
+  placeId?: string;
+
+  @IsOptional()
+  @IsNumber()
+  lat?: number;
+
+  @IsOptional()
+  @IsNumber()
+  lng?: number;
 }

@@ -87,7 +87,7 @@ export class AccountService {
         : 'none';
     const currency = odoo?.currency ?? 'SAR';
     const creditLimit =
-      Number(odoo?.creditLimitApproved ?? 0) || odoo?.creditLimit ?? 0;
+      Number(odoo?.creditLimitApproved ?? 0) || (odoo?.creditLimit ?? 0);
     return {
       id: u.id,
       displayName:

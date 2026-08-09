@@ -18,10 +18,12 @@ import { ContentModule } from './modules/content/content.module';
 import { ContactModule } from './modules/contact/contact.module';
 import { WebhooksModule } from './modules/webhooks/webhooks.module';
 import { ChatModule } from './modules/chat/chat.module';
+import { MediaModule } from './modules/media/media.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    MediaModule,
     RedisModule,
     PersistenceModule,
     HealthModule,

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import type { PackagingFixture, ProductFixture } from '../../mocks/catalog.fixtures';
+import { OdooMediaProxyService } from '../../modules/media/odoo-media-proxy.service';
 import { OdooClient } from './odoo.client';
 
 export type CatalogCategoryBanner = {
@@ -133,10 +133,7 @@ const STORE_ROOT = { slug: 'products', name: 'PRODUCTS' };
 export class OdooCatalogLoader {
   private readonly logger = new Logger(OdooCatalogLoader.name);
 
-  constructor(
-    private readonly odoo: OdooClient,
-    private readonly config: ConfigService,
-  ) {}
+  constructor(private readonly odoo: OdooClient, private readonly mediaProxy: OdooMediaProxyService) {}
 
   async load(): Promise<OdooCatalogSnapshot> {
     const categories = await this.loadCategories();
@@ -210,10 +207,8 @@ export class OdooCatalogLoader {
     }
 
     const tmplIds = templates.map((t) => t.id);
-    const baseUrl = (this.config.get<string>('ODOO_URL') || 'http://localhost:8069').replace(
-      /\/$/,
-      '',
-    );
+    const asset = (path: string, query?: Record<string, string>) =>
+      this.mediaProxy.proxyUrl(path, query);
 
     const [
       variants,
@@ -295,7 +290,7 @@ export class OdooCatalogLoader {
         currency,
         pricingNotices,
         tmplGallery,
-        baseUrl,
+        asset,
       );
       const defaultPkg =
         packagingOptions.find((o) => o.default) ?? packagingOptions[0];
@@ -313,12 +308,12 @@ export class OdooCatalogLoader {
             }
           : templatePalletPricing;
       const inStock = (t.qty_available ?? 1) > 0;
-      const mainImageUrl = `${baseUrl}/web/image/product.template/${t.id}/image_128`;
+      const mainImageUrl = asset(`/web/image/product.template/${t.id}/image_128`);
       const gallery = buildGallery(
         templateWideGallery(tmplGallery),
         mainImageUrl,
         t.name,
-        baseUrl,
+        asset,
       );
 
       productsBySlug[slug] = {
@@ -360,7 +355,9 @@ export class OdooCatalogLoader {
         documents: (documentsByTmpl.get(t.id) ?? []).map((doc) => ({
           type: doc.doc_type as 'pds' | 'sds' | 'other',
           title: doc.name,
-          url: `${baseUrl}/web/content/bt.product.document/${doc.id}/file?download=true`,
+          url: asset(`/web/content/bt.product.document/${doc.id}/file`, {
+            download: 'true',
+          }),
         })),
         relatedSlugs: [],
       };
@@ -776,9 +773,9 @@ function buildPackagingOptions(
   currency: string,
   notices: { partial?: string; full?: string },
   galleryImages: OdooGalleryImage[] = [],
-  baseUrl = '',
+  asset: (path: string, query?: Record<string, string>) => string = (path) => path,
 ): ProductFixture['packagingOptions'] {
-  const mediaByVariantId = galleryByVariantId(galleryImages, baseUrl, tmpl.name);
+  const mediaByVariantId = galleryByVariantId(galleryImages, asset, tmpl.name);
 
   if (variants.length > 1) {
     return variants.map((v, idx) => {
@@ -940,11 +937,11 @@ function templateWideGallery(images: OdooGalleryImage[]): OdooGalleryImage[] {
 
 function galleryMediaItem(
   image: OdooGalleryImage,
-  baseUrl: string,
+  asset: (path: string, query?: Record<string, string>) => string,
   fallbackAlt: string,
 ): { url: string; alt: string } {
   return {
-    url: `${baseUrl}/web/image/bt.product.image/${image.id}/image`,
+    url: asset(`/web/image/bt.product.image/${image.id}/image`),
     alt: image.name || fallbackAlt,
   };
 }
@@ -952,7 +949,7 @@ function galleryMediaItem(
 /** Map packaging variant id → ordered media slides. */
 function galleryByVariantId(
   images: OdooGalleryImage[],
-  baseUrl: string,
+  asset: (path: string, query?: Record<string, string>) => string,
   fallbackAlt: string,
 ): Map<number, Array<{ url: string; alt: string }>> {
   const byVariant = new Map<number, Array<{ url: string; alt: string }>>();
@@ -961,7 +958,7 @@ function galleryByVariantId(
     if (!Array.isArray(image.product_id)) continue;
     const variantId = image.product_id[0];
     const list = byVariant.get(variantId) ?? [];
-    list.push(galleryMediaItem(image, baseUrl, fallbackAlt));
+    list.push(galleryMediaItem(image, asset, fallbackAlt));
     byVariant.set(variantId, list);
   }
   return byVariant;
@@ -971,12 +968,12 @@ function buildGallery(
   images: OdooGalleryImage[],
   mainImageUrl: string,
   name: string,
-  baseUrl: string,
+  asset: (path: string, query?: Record<string, string>) => string,
 ): Array<{ url: string; alt: string }> {
   if (!images.length) {
     return [{ url: mainImageUrl, alt: name }];
   }
-  return images.map((image) => galleryMediaItem(image, baseUrl, name));
+  return images.map((image) => galleryMediaItem(image, asset, name));
 }
 
 function escapeHtml(s: string): string {

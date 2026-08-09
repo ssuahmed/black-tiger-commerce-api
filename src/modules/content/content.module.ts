@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
 import { OdooClient } from '../../infrastructure/odoo/odoo.client';
 import { WebhooksModule } from '../webhooks/webhooks.module';
+import { MediaModule } from '../media/media.module';
 import { ContentController } from './content.controller';
 import { ContentService } from './content.service';
 
 @Module({
-  imports: [WebhooksModule],
+  imports: [WebhooksModule, MediaModule],
   controllers: [ContentController],
   providers: [ContentService, OdooClient],
   exports: [ContentService],

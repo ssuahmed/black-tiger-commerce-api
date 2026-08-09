@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { OdooMediaProxyService } from '../../modules/media/odoo-media-proxy.service';
 
 type JsonRpcResponse<T> = {
   result?: T;
@@ -11,7 +12,10 @@ export class OdooClient {
   private readonly logger = new Logger(OdooClient.name);
   private uid: number | null = null;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly mediaProxy: OdooMediaProxyService,
+  ) {}
 
   isConfigured(): boolean {
     return this.config.get<string>('ODOO_MODE') === 'live';
@@ -111,11 +115,11 @@ export class OdooClient {
         type: block.type ?? null,
         text: block.text ?? null,
         html: block.html ?? null,
-        imageUrl: block.imageUrl ?? null,
+        imageUrl: this.mediaProxy.rewritePublicUrl(block.imageUrl ?? null) ?? null,
         link: block.link ?? null,
       };
       if (block.type === 'json' && block.json != null) {
-        normalized.json = this.parseJsonBlock(block.json);
+        normalized.json = this.rewriteJsonMediaUrls(this.parseJsonBlock(block.json));
       }
       out[key] = normalized;
     }
@@ -131,6 +135,23 @@ export class OdooClient {
     } catch {
       return raw;
     }
+  }
+
+  private rewriteJsonMediaUrls(value: unknown): unknown {
+    if (typeof value === 'string') {
+      return this.mediaProxy.rewritePublicUrl(value) ?? value;
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) => this.rewriteJsonMediaUrls(item));
+    }
+    if (value && typeof value === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+        out[key] = this.rewriteJsonMediaUrls(child);
+      }
+      return out;
+    }
+    return value;
   }
 }
 

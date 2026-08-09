@@ -31,7 +31,7 @@ Default URL: `http://localhost:3001`
 | API | Resource routes under `/v1/...` |
 | Swagger | `GET /docs`, `GET /docs-json` |
 | Demo login | `demo@blacktiger.com.sa` / `Password1!` (segment `b2c`) |
-| Dev OTP | With `NODE_ENV=development`, OTP code is **`123456`** |
+| Dev OTP | With `USE_MOCK_OTP=true`, OTP code is **`123456`** |
 
 ## Docker (API + Redis)
 

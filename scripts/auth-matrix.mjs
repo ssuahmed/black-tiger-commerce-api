@@ -84,7 +84,7 @@ async function main() {
     }
   }
 
-  // OTP login (dev code 123456)
+  // OTP login (mock code 123456 when USE_MOCK_OTP=true)
   {
     const id = await req('POST', '/auth/identifier', {
       body: { identifier: DEMO, intent: 'login' },
@@ -104,7 +104,7 @@ async function main() {
       body: { challengeId: cid, code: '123456', purpose: 'login' },
     });
     record(
-      'OTP verify (dev 123456)',
+      'OTP verify (mock 123456)',
       Boolean(verify.ok && verify.data?.accessToken),
       verify.ok ? verify.data?.user?.email : `HTTP ${verify.status}`,
     );

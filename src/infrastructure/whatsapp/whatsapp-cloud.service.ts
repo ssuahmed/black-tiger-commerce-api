@@ -31,6 +31,17 @@ export class WhatsAppCloudService {
     );
   }
 
+  private useMockOtp(): boolean {
+    const raw = (
+      this.config.get<string>('USE_MOCK_OTP') ??
+      process.env.USE_MOCK_OTP ??
+      ''
+    )
+      .trim()
+      .toLowerCase();
+    return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+  }
+
   private normalizeMsisdn(to: string): string {
     return String(to || '').replace(/\D/g, '');
   }
@@ -49,11 +60,8 @@ export class WhatsAppCloudService {
       this.logger.warn(
         `WhatsApp Cloud API not configured — OTP for +${to} not sent (${input.purpose})`,
       );
-      if (
-        this.config.get<string>('NODE_ENV') === 'development' ||
-        process.env.NODE_ENV === 'development'
-      ) {
-        this.logger.log(`Dev OTP (whatsapp): ${input.code}`);
+      if (this.useMockOtp()) {
+        this.logger.log(`Mock OTP (whatsapp): ${input.code}`);
       }
       return;
     }

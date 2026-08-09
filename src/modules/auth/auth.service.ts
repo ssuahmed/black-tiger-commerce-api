@@ -69,8 +69,8 @@ export class AuthService {
   }
 
   private generateOtpCode(): string {
-    // Stable code in development so local smoke/e2e stay simple; still emailed / WhatsApp-stubbed.
-    if (this.isDevMode()) {
+    // Stable code when USE_MOCK_OTP is enabled (local smoke / e2e).
+    if (this.useMockOtp()) {
       return '123456';
     }
     return String(100000 + Math.floor(Math.random() * 900000));
@@ -100,8 +100,8 @@ export class AuthService {
         this.logger.warn(
           `SMTP not configured — OTP for ${this.maskIdentifier(ch.identifier, 'email')} not emailed`,
         );
-        if (this.isDevMode()) {
-          this.logger.log(`Dev OTP (email): ${code}`);
+        if (this.useMockOtp()) {
+          this.logger.log(`Mock OTP (email): ${code}`);
         }
         return;
       }
@@ -137,10 +137,10 @@ export class AuthService {
 
     // SMS channel — provider not wired yet; stub like WhatsApp when unconfigured
     this.logger.warn(
-      `OTP for mobile ${this.maskIdentifier(ch.identifier, 'mobile')} — SMS not configured; code logged in development only`,
+      `OTP for mobile ${this.maskIdentifier(ch.identifier, 'mobile')} — SMS not configured; code logged when USE_MOCK_OTP is enabled`,
     );
-    if (this.isDevMode()) {
-      this.logger.log(`Dev OTP (sms): ${code}`);
+    if (this.useMockOtp()) {
+      this.logger.log(`Mock OTP (sms): ${code}`);
     }
   }
 
@@ -343,8 +343,20 @@ export class AuthService {
     return env === 'development' || env === 'dev';
   }
 
-  private isDevOtp(code: string): boolean {
-    return this.isDevMode() && String(code || '').trim() === '123456';
+  /** When true, OTP is fixed to 123456 and accepted as a mock bypass. */
+  private useMockOtp(): boolean {
+    const raw = (
+      this.config.get<string>('USE_MOCK_OTP') ??
+      process.env.USE_MOCK_OTP ??
+      ''
+    )
+      .trim()
+      .toLowerCase();
+    return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
+  }
+
+  private isMockOtp(code: string): boolean {
+    return this.useMockOtp() && String(code || '').trim() === '123456';
   }
 
   getPasswordPolicy() {
@@ -604,7 +616,7 @@ export class AuthService {
         ch.otpExpiresAt &&
         Date.now() < ch.otpExpiresAt &&
         ch.otpCode === code
-      ) || this.isDevOtp(code);
+      ) || this.isMockOtp(code);
     if (!otpOk) {
       throw new UnauthorizedException('Invalid or expired OTP');
     }
@@ -665,13 +677,13 @@ export class AuthService {
         : ch.identifier;
     let user = await this.findUserByIdentifier(lookup);
 
-    // Dev smoke path: mobile WhatsApp OTP with 123456 can complete without a
+    // Mock OTP path: mobile WhatsApp OTP with 123456 can complete without a
     // pre-existing partner (creates a storefront user on the fly).
-    if (!user && this.isDevOtp(code) && ch.identifierType === 'mobile') {
+    if (!user && this.isMockOtp(code) && ch.identifierType === 'mobile') {
       const digits = ch.identifier.replace(/\D/g, '') || 'mobile';
       const email = `${digits}@dev.whatsapp.local`;
       this.logger.warn(
-        `Dev OTP login: provisioning storefront user for ${ch.identifier}`,
+        `Mock OTP login: provisioning storefront user for ${ch.identifier}`,
       );
       user = await this.persistNewUser({
         email,
@@ -838,7 +850,7 @@ export class AuthService {
           ch.otpExpiresAt &&
           Date.now() < ch.otpExpiresAt &&
           ch.otpCode === dto.code
-        ) || !!(ch && this.isDevOtp(dto.code));
+        ) || !!(ch && this.isMockOtp(dto.code));
       if (!ch || !otpOk) {
         throw new UnauthorizedException('Invalid token, OTP, or session');
       }

@@ -101,12 +101,16 @@ export function normalizePdpPricing(
 
   const partialPallet =
     raw.partialPallet ??
-    (Array.isArray(raw.partialPalletTiers) && raw.partialPalletTiers[0]) ??
-    undefined;
+    (Array.isArray(raw.partialPalletTiers) && raw.partialPalletTiers.length
+      ? raw.partialPalletTiers[0]
+      : undefined) ??
+    null;
   const fullPallet =
     raw.fullPallet ??
-    (Array.isArray(raw.fullPalletTiers) && raw.fullPalletTiers[0]) ??
-    undefined;
+    (Array.isArray(raw.fullPalletTiers) && raw.fullPalletTiers.length
+      ? raw.fullPalletTiers[0]
+      : undefined) ??
+    null;
 
   const lineSummaryRows = Array.isArray(raw.lineSummaryRows)
     ? raw.lineSummaryRows

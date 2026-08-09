@@ -1,7 +1,8 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../redis/redis.module';
 import { OdooClient } from './odoo.client';
+import { vehicleCatalogAsStorefrontOptions } from '../../modules/checkout/vehicle-fleet';
 
 export interface StorefrontShippingOption {
   id: string;
@@ -14,23 +15,24 @@ export interface StorefrontShippingOption {
   };
 }
 
-const FIXTURE_OPTIONS: StorefrontShippingOption[] = [
-  {
-    id: 'pallet-standard',
-    label: 'Standard pallet freight',
-    etaDays: 5,
-    price: { currency: 'SAR', amount: 450, formatted: '450 SAR' },
-  },
-  {
-    id: 'express-ltl',
-    label: 'Express LTL',
-    etaDays: 2,
-    price: { currency: 'SAR', amount: 890, formatted: '890 SAR' },
-  },
-];
+/** Vehicle catalog is SSOT for storefront freight (mock tiered costs). */
+const FIXTURE_OPTIONS: StorefrontShippingOption[] =
+  vehicleCatalogAsStorefrontOptions();
 
 const CACHE_KEY = 'bt:shipping:options';
 const DEFAULT_TTL_SEC = 300;
+
+/** Legacy method codes no longer offered at checkout. */
+const REMOVED_SHIPPING_OPTION_IDS = new Set([
+  'express-ltl',
+  'pallet-standard',
+]);
+
+function withoutRemovedShippingOptions(
+  options: StorefrontShippingOption[],
+): StorefrontShippingOption[] {
+  return options.filter((row) => row?.id && !REMOVED_SHIPPING_OPTION_IDS.has(row.id));
+}
 
 @Injectable()
 export class OdooShippingService {
@@ -48,28 +50,38 @@ export class OdooShippingService {
   }
 
   async getStorefrontOptions(): Promise<StorefrontShippingOption[]> {
+    // Always expose the vehicle catalog for packing/pricing. Live Odoo may
+    // override labels later; capacities and mock costs stay API-owned for now.
     if (!this.isLive()) {
       return FIXTURE_OPTIONS;
     }
 
     const cached = await this.getCached();
-    if (cached) {
-      return cached;
+    if (cached?.length) {
+      const filtered = withoutRemovedShippingOptions(cached);
+      if (filtered.length) return filtered;
     }
 
-    const items = await this.odoo.executeKw<StorefrontShippingOption[]>(
-      'bt.storefront.shipping.option',
-      'bt_get_storefront_options',
-      [],
-    );
-    if (!items?.length) {
-      this.logger.warn('Odoo returned no shipping options');
-      throw new ServiceUnavailableException(
-        'Shipping options unavailable — Odoo returned empty list',
+    try {
+      const items = await this.odoo.executeKw<StorefrontShippingOption[]>(
+        'bt.storefront.shipping.option',
+        'bt_get_storefront_options',
+        [],
+      );
+      const filtered = withoutRemovedShippingOptions(items ?? []);
+      if (filtered.length) {
+        await this.setCached(filtered);
+        return filtered;
+      }
+      this.logger.warn(
+        'Odoo returned no vehicle shipping options — using API vehicle catalog',
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Odoo shipping options failed — using API vehicle catalog: ${String(err)}`,
       );
     }
-    await this.setCached(items);
-    return items;
+    return FIXTURE_OPTIONS;
   }
 
   async invalidateCache(): Promise<void> {

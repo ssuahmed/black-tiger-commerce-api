@@ -39,6 +39,22 @@ export interface ShippingRecommendation {
   suggestedProducts: SuggestedProductCard[];
   palletBreakdown: PalletBreakdown;
   logistics: CartLogistics;
+  fleetPlan?: FleetPlanSummary;
+}
+
+export interface FleetPlanSummary {
+  totalPallets: number;
+  totalAmount: number;
+  currency: string;
+  vehicles: Array<{
+    id: string;
+    label: string;
+    qty: number;
+    unitPrice: number;
+    lineTotal: number;
+    palletsLoaded: number;
+    maxPallets: number;
+  }>;
 }
 
 export interface EnrichedShippingOption {
@@ -52,6 +68,16 @@ export interface EnrichedShippingOption {
   };
   recommended: boolean;
   reason: string | null;
+  /** Vehicles of this type in the computed fleet plan (0 when unused). */
+  qty?: number;
+  /** Pallets loaded onto this vehicle group. */
+  palletsLoaded?: number;
+  /** Unit price before qty. */
+  unitPrice?: number;
+  /** qty × unitPrice */
+  lineTotal?: number;
+  /** True for the selectable fleet total row. */
+  isFleetTotal?: boolean;
 }
 
 export interface ShippingOptionsPayload {

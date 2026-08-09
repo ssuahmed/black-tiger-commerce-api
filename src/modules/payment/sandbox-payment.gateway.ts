@@ -20,7 +20,9 @@ export class SandboxPaymentGateway implements PaymentGatewayAdapter {
     const paymentIntentId = newId();
     const clientSecret = `sandbox_secret_${paymentIntentId}`;
     const status: PaymentIntentStatus =
-      input.method === 'card' ? 'requires_confirmation' : 'succeeded';
+      input.method === 'card' || input.method === 'apple_pay'
+        ? 'requires_confirmation'
+        : 'succeeded';
     const now = new Date().toISOString();
     const amount = Number(input.amount ?? 0);
     const currency = input.currency ?? 'SAR';

@@ -4,9 +4,10 @@ import { PersistenceModule } from '../../persistence/persistence.module';
 import { QuotesController } from './quotes.controller';
 import { QuotesService } from './quotes.service';
 import { CartModule } from '../cart/cart.module';
+import { CheckoutModule } from '../checkout/checkout.module';
 
 @Module({
-  imports: [PersistenceModule, AuthModule, CartModule],
+  imports: [PersistenceModule, AuthModule, CartModule, CheckoutModule],
   controllers: [QuotesController],
   providers: [QuotesService],
 })

@@ -37,6 +37,10 @@ export interface PackagingFixture {
   default?: boolean;
   /** Variant-specific list price when loaded from Odoo */
   unitPrice?: number;
+  /** Cover image for listing thumb when this packaging is selected. */
+  image?: { url: string; alt: string };
+  /** PDP gallery slides for this packaging variant. */
+  media?: Array<{ url: string; alt: string }>;
   /** Partial / full pallet tables for this packaging variant. */
   pricing?: Record<string, unknown>;
 }
@@ -168,6 +172,20 @@ export const PRODUCTS_BY_SLUG: Record<string, ProductFixture> = {
         sku: 'BT-10W30-1L12',
         default: true,
         unitPrice: 88.5,
+        image: {
+          url: 'https://placehold.co/600x600/1a1a1a/f5f5f5/png?text=1L+x12',
+          alt: 'TIGER 10W30 — Box 1L x12',
+        },
+        media: [
+          {
+            url: 'https://placehold.co/600x600/1a1a1a/f5f5f5/png?text=1L+x12',
+            alt: 'TIGER 10W30 — Box 1L x12 front',
+          },
+          {
+            url: 'https://placehold.co/600x600/333333/f5f5f5/png?text=1L+angle',
+            alt: 'TIGER 10W30 — Box 1L x12 angle',
+          },
+        ],
         pricing: {
           partialPallet: {
             title: 'Price Per Partial Pallet',
@@ -181,7 +199,16 @@ export const PRODUCTS_BY_SLUG: Record<string, ProductFixture> = {
             title: 'Price Per Full Pallet',
             columns: ['Pallet QTY', 'Box Per Pallet', 'Total Box QTY', 'Unit Price', 'EXT Price'],
             rows: [
-              { palletQty: 1, boxPerPallet: 48, totalBoxQty: 48, unitPrice: '83.26 SAR', extPrice: '3,996.48 SAR' },
+              { palletQty: 1, boxPerPallet: 78, totalBoxQty: 78, unitPrice: '83.50 SAR', extPrice: '6,513.00 SAR' },
+              { palletQty: 2, boxPerPallet: 78, totalBoxQty: 156, unitPrice: '83.50 SAR', extPrice: '13,026.00 SAR' },
+              { palletQty: 3, boxPerPallet: 78, totalBoxQty: 234, unitPrice: '83.50 SAR', extPrice: '19,539.00 SAR' },
+              { palletQty: 4, boxPerPallet: 78, totalBoxQty: 312, unitPrice: '83.50 SAR', extPrice: '26,052.00 SAR' },
+              { palletQty: 5, boxPerPallet: 78, totalBoxQty: 390, unitPrice: '83.50 SAR', extPrice: '32,565.00 SAR' },
+              { palletQty: 6, boxPerPallet: 78, totalBoxQty: 468, unitPrice: '83.50 SAR', extPrice: '39,078.00 SAR' },
+              { palletQty: 7, boxPerPallet: 78, totalBoxQty: 546, unitPrice: '83.50 SAR', extPrice: '45,591.00 SAR' },
+              { palletQty: 8, boxPerPallet: 78, totalBoxQty: 624, unitPrice: '83.50 SAR', extPrice: '52,104.00 SAR' },
+              { palletQty: 9, boxPerPallet: 78, totalBoxQty: 702, unitPrice: '83.50 SAR', extPrice: '58,617.00 SAR' },
+              { palletQty: 10, boxPerPallet: 78, totalBoxQty: 780, unitPrice: '83.50 SAR', extPrice: '65,130.00 SAR' },
             ],
           },
         },
@@ -191,6 +218,20 @@ export const PRODUCTS_BY_SLUG: Record<string, ProductFixture> = {
         label: 'Box 5LX12',
         sku: 'BT-10W30-5L12',
         unitPrice: 425,
+        image: {
+          url: 'https://placehold.co/600x600/8b0000/f5f5f5/png?text=5L+x12',
+          alt: 'TIGER 10W30 — Box 5L x12',
+        },
+        media: [
+          {
+            url: 'https://placehold.co/600x600/8b0000/f5f5f5/png?text=5L+x12',
+            alt: 'TIGER 10W30 — Box 5L x12 front',
+          },
+          {
+            url: 'https://placehold.co/600x600/a52a2a/f5f5f5/png?text=5L+side',
+            alt: 'TIGER 10W30 — Box 5L x12 side',
+          },
+        ],
         pricing: {
           partialPallet: {
             rows: [
@@ -200,7 +241,16 @@ export const PRODUCTS_BY_SLUG: Record<string, ProductFixture> = {
           },
           fullPallet: {
             rows: [
-              { palletQty: 1, boxPerPallet: 24, totalBoxQty: 24, unitPrice: '398.50 SAR', extPrice: '9,564.00 SAR' },
+              { palletQty: 1, boxPerPallet: 78, totalBoxQty: 78, unitPrice: '420.00 SAR', extPrice: '32,760.00 SAR' },
+              { palletQty: 2, boxPerPallet: 78, totalBoxQty: 156, unitPrice: '420.00 SAR', extPrice: '65,520.00 SAR' },
+              { palletQty: 3, boxPerPallet: 78, totalBoxQty: 234, unitPrice: '420.00 SAR', extPrice: '98,280.00 SAR' },
+              { palletQty: 4, boxPerPallet: 78, totalBoxQty: 312, unitPrice: '420.00 SAR', extPrice: '131,040.00 SAR' },
+              { palletQty: 5, boxPerPallet: 78, totalBoxQty: 390, unitPrice: '420.00 SAR', extPrice: '163,800.00 SAR' },
+              { palletQty: 6, boxPerPallet: 78, totalBoxQty: 468, unitPrice: '420.00 SAR', extPrice: '196,560.00 SAR' },
+              { palletQty: 7, boxPerPallet: 78, totalBoxQty: 546, unitPrice: '420.00 SAR', extPrice: '229,320.00 SAR' },
+              { palletQty: 8, boxPerPallet: 78, totalBoxQty: 624, unitPrice: '420.00 SAR', extPrice: '262,080.00 SAR' },
+              { palletQty: 9, boxPerPallet: 78, totalBoxQty: 702, unitPrice: '420.00 SAR', extPrice: '294,840.00 SAR' },
+              { palletQty: 10, boxPerPallet: 78, totalBoxQty: 780, unitPrice: '420.00 SAR', extPrice: '327,600.00 SAR' },
             ],
           },
         },
@@ -211,6 +261,16 @@ export const PRODUCTS_BY_SLUG: Record<string, ProductFixture> = {
         sku: 'BT-10W30-20L',
         badges: ['sale'],
         unitPrice: 295,
+        image: {
+          url: 'https://placehold.co/600x600/004d40/f5f5f5/png?text=20L+Pail',
+          alt: 'TIGER 10W30 — 20L Pail',
+        },
+        media: [
+          {
+            url: 'https://placehold.co/600x600/004d40/f5f5f5/png?text=20L+Pail',
+            alt: 'TIGER 10W30 — 20L Pail',
+          },
+        ],
         pricing: {
           partialPallet: {
             rows: [
@@ -225,6 +285,16 @@ export const PRODUCTS_BY_SLUG: Record<string, ProductFixture> = {
         label: '208 Liter Drum',
         sku: 'BT-10W30-208',
         unitPrice: 2680,
+        image: {
+          url: 'https://placehold.co/600x600/0d47a1/f5f5f5/png?text=208L+Drum',
+          alt: 'TIGER 10W30 — 208L Drum',
+        },
+        media: [
+          {
+            url: 'https://placehold.co/600x600/0d47a1/f5f5f5/png?text=208L+Drum',
+            alt: 'TIGER 10W30 — 208L Drum',
+          },
+        ],
         pricing: {
           partialPallet: {
             rows: [{ boxQty: 1, unitPrice: '2,650.00 SAR', extPrice: '2,650.00 SAR' }],
@@ -279,7 +349,16 @@ export const PRODUCTS_BY_SLUG: Record<string, ProductFixture> = {
         title: 'Price Per Full Pallet',
         columns: ['Pallet QTY', 'Box Per Pallet', 'Total Box QTY', 'Unit Price', 'EXT Price'],
         rows: [
-          { palletQty: 1, boxPerPallet: 48, totalBoxQty: 48, unitPrice: '83.26 SAR', extPrice: '3,996.48 SAR' },
+          { palletQty: 1, boxPerPallet: 78, totalBoxQty: 78, unitPrice: '83.50 SAR', extPrice: '6,513.00 SAR' },
+          { palletQty: 2, boxPerPallet: 78, totalBoxQty: 156, unitPrice: '83.50 SAR', extPrice: '13,026.00 SAR' },
+          { palletQty: 3, boxPerPallet: 78, totalBoxQty: 234, unitPrice: '83.50 SAR', extPrice: '19,539.00 SAR' },
+          { palletQty: 4, boxPerPallet: 78, totalBoxQty: 312, unitPrice: '83.50 SAR', extPrice: '26,052.00 SAR' },
+          { palletQty: 5, boxPerPallet: 78, totalBoxQty: 390, unitPrice: '83.50 SAR', extPrice: '32,565.00 SAR' },
+          { palletQty: 6, boxPerPallet: 78, totalBoxQty: 468, unitPrice: '83.50 SAR', extPrice: '39,078.00 SAR' },
+          { palletQty: 7, boxPerPallet: 78, totalBoxQty: 546, unitPrice: '83.50 SAR', extPrice: '45,591.00 SAR' },
+          { palletQty: 8, boxPerPallet: 78, totalBoxQty: 624, unitPrice: '83.50 SAR', extPrice: '52,104.00 SAR' },
+          { palletQty: 9, boxPerPallet: 78, totalBoxQty: 702, unitPrice: '83.50 SAR', extPrice: '58,617.00 SAR' },
+          { palletQty: 10, boxPerPallet: 78, totalBoxQty: 780, unitPrice: '83.50 SAR', extPrice: '65,130.00 SAR' },
         ],
         notice: 'Volume advantage: full pallet orders unlock the lowest unit price per box.',
       },
@@ -346,7 +425,16 @@ export const PRODUCTS_BY_SLUG: Record<string, ProductFixture> = {
         title: 'Price Per Full Pallet',
         columns: ['Pallet QTY', 'Box Per Pallet', 'Total Box QTY', 'Unit Price', 'EXT Price'],
         rows: [
-          { palletQty: 1, boxPerPallet: 48, totalBoxQty: 48, unitPrice: '74.21 SAR', extPrice: '3,562.08 SAR' },
+          { palletQty: 1, boxPerPallet: 78, totalBoxQty: 78, unitPrice: '73.90 SAR', extPrice: '5,764.20 SAR' },
+          { palletQty: 2, boxPerPallet: 78, totalBoxQty: 156, unitPrice: '73.90 SAR', extPrice: '11,528.40 SAR' },
+          { palletQty: 3, boxPerPallet: 78, totalBoxQty: 234, unitPrice: '73.90 SAR', extPrice: '17,292.60 SAR' },
+          { palletQty: 4, boxPerPallet: 78, totalBoxQty: 312, unitPrice: '73.90 SAR', extPrice: '23,056.80 SAR' },
+          { palletQty: 5, boxPerPallet: 78, totalBoxQty: 390, unitPrice: '73.90 SAR', extPrice: '28,821.00 SAR' },
+          { palletQty: 6, boxPerPallet: 78, totalBoxQty: 468, unitPrice: '73.90 SAR', extPrice: '34,585.20 SAR' },
+          { palletQty: 7, boxPerPallet: 78, totalBoxQty: 546, unitPrice: '73.90 SAR', extPrice: '40,349.40 SAR' },
+          { palletQty: 8, boxPerPallet: 78, totalBoxQty: 624, unitPrice: '73.90 SAR', extPrice: '46,113.60 SAR' },
+          { palletQty: 9, boxPerPallet: 78, totalBoxQty: 702, unitPrice: '73.90 SAR', extPrice: '51,877.80 SAR' },
+          { palletQty: 10, boxPerPallet: 78, totalBoxQty: 780, unitPrice: '73.90 SAR', extPrice: '57,642.00 SAR' },
         ],
         notice: 'Volume advantage: full pallet orders unlock the lowest unit price per box.',
       },
@@ -392,7 +480,16 @@ export const PRODUCTS_BY_SLUG: Record<string, ProductFixture> = {
         title: 'Price Per Full Pallet',
         columns: ['Pallet QTY', 'Box Per Pallet', 'Total Box QTY', 'Unit Price', 'EXT Price'],
         rows: [
-          { palletQty: 1, boxPerPallet: 48, totalBoxQty: 48, unitPrice: '52.20 SAR', extPrice: '2,505.60 SAR' },
+          { palletQty: 1, boxPerPallet: 78, totalBoxQty: 78, unitPrice: '50.00 SAR', extPrice: '3,900.00 SAR' },
+          { palletQty: 2, boxPerPallet: 78, totalBoxQty: 156, unitPrice: '50.00 SAR', extPrice: '7,800.00 SAR' },
+          { palletQty: 3, boxPerPallet: 78, totalBoxQty: 234, unitPrice: '50.00 SAR', extPrice: '11,700.00 SAR' },
+          { palletQty: 4, boxPerPallet: 78, totalBoxQty: 312, unitPrice: '50.00 SAR', extPrice: '15,600.00 SAR' },
+          { palletQty: 5, boxPerPallet: 78, totalBoxQty: 390, unitPrice: '50.00 SAR', extPrice: '19,500.00 SAR' },
+          { palletQty: 6, boxPerPallet: 78, totalBoxQty: 468, unitPrice: '50.00 SAR', extPrice: '23,400.00 SAR' },
+          { palletQty: 7, boxPerPallet: 78, totalBoxQty: 546, unitPrice: '50.00 SAR', extPrice: '27,300.00 SAR' },
+          { palletQty: 8, boxPerPallet: 78, totalBoxQty: 624, unitPrice: '50.00 SAR', extPrice: '31,200.00 SAR' },
+          { palletQty: 9, boxPerPallet: 78, totalBoxQty: 702, unitPrice: '50.00 SAR', extPrice: '35,100.00 SAR' },
+          { palletQty: 10, boxPerPallet: 78, totalBoxQty: 780, unitPrice: '50.00 SAR', extPrice: '39,000.00 SAR' },
         ],
         notice: 'Full pallet pricing available for fleet orders.',
       },
@@ -438,7 +535,16 @@ export const PRODUCTS_BY_SLUG: Record<string, ProductFixture> = {
         title: 'Price Per Full Pallet',
         columns: ['Pallet QTY', 'Box Per Pallet', 'Total Box QTY', 'Unit Price', 'EXT Price'],
         rows: [
-          { palletQty: 1, boxPerPallet: 4, totalBoxQty: 4, unitPrice: '68.90 SAR', extPrice: '275.60 SAR' },
+          { palletQty: 1, boxPerPallet: 78, totalBoxQty: 78, unitPrice: '67.00 SAR', extPrice: '5,226.00 SAR' },
+          { palletQty: 2, boxPerPallet: 78, totalBoxQty: 156, unitPrice: '67.00 SAR', extPrice: '10,452.00 SAR' },
+          { palletQty: 3, boxPerPallet: 78, totalBoxQty: 234, unitPrice: '67.00 SAR', extPrice: '15,678.00 SAR' },
+          { palletQty: 4, boxPerPallet: 78, totalBoxQty: 312, unitPrice: '67.00 SAR', extPrice: '20,904.00 SAR' },
+          { palletQty: 5, boxPerPallet: 78, totalBoxQty: 390, unitPrice: '67.00 SAR', extPrice: '26,130.00 SAR' },
+          { palletQty: 6, boxPerPallet: 78, totalBoxQty: 468, unitPrice: '67.00 SAR', extPrice: '31,356.00 SAR' },
+          { palletQty: 7, boxPerPallet: 78, totalBoxQty: 546, unitPrice: '67.00 SAR', extPrice: '36,582.00 SAR' },
+          { palletQty: 8, boxPerPallet: 78, totalBoxQty: 624, unitPrice: '67.00 SAR', extPrice: '41,808.00 SAR' },
+          { palletQty: 9, boxPerPallet: 78, totalBoxQty: 702, unitPrice: '67.00 SAR', extPrice: '47,034.00 SAR' },
+          { palletQty: 10, boxPerPallet: 78, totalBoxQty: 780, unitPrice: '67.00 SAR', extPrice: '52,260.00 SAR' },
         ],
         notice: 'Full pallet drum pricing for fleet distributors.',
       },
@@ -452,6 +558,13 @@ export const FEATURED_SLUGS = [
   'commercial-15w40-ci4',
 ];
 
+import {
+  buildCatalogFacets,
+  productLineKey,
+  productLineLabel,
+  type CatalogFacetOptions,
+} from '../modules/catalog/catalog-taxonomy';
+
 export function productToCard(p: ProductFixture) {
   const packagingOptions = (p.packagingOptions ?? []).map((o) => {
     const unitPrice = o.unitPrice ?? p.unitPrice;
@@ -463,12 +576,15 @@ export function productToCard(p: ProductFixture) {
       default: o.default,
       unitPrice,
       formattedUnitPrice: `${unitPrice.toLocaleString('en-SA')} ${p.currency}`,
+      image: o.image,
+      media: o.media,
     };
   });
   const optionPrices = packagingOptions
     .map((o) => o.unitPrice)
     .filter((n): n is number => typeof n === 'number' && n > 0);
   const fromPrice = optionPrices.length ? Math.min(...optionPrices) : p.unitPrice;
+  const lineKey = productLineKey(p);
 
   return {
     id: p.id,
@@ -476,6 +592,8 @@ export function productToCard(p: ProductFixture) {
     name: p.name,
     productCode: p.productCode,
     categoryLabel: p.categoryLabel,
+    productLine: lineKey,
+    productLineLabel: lineKey ? productLineLabel(lineKey) : undefined,
     shortDescription: p.shortDescription,
     image: { url: p.imageUrl, alt: p.name },
     packagingOptions,
@@ -490,11 +608,6 @@ export function productToCard(p: ProductFixture) {
     viewHref: `/products/${p.slug}`,
   };
 }
-
-import {
-  buildCatalogFacets,
-  type CatalogFacetOptions,
-} from '../modules/catalog/catalog-taxonomy';
 
 export function buildFacets(
   items: ProductFixture[],

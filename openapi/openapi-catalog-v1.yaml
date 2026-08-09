@@ -484,6 +484,29 @@ components:
             enum: [sale]
         default:
           type: boolean
+        image:
+          type: object
+          description: Cover image when this packaging is selected (listing thumb / gallery fallback)
+          properties:
+            url:
+              type: string
+            alt:
+              type: string
+        media:
+          type: array
+          description: PDP gallery slides for this packaging variant
+          items:
+            type: object
+            properties:
+              url:
+                type: string
+              alt:
+                type: string
+        unitPrice:
+          type: number
+        pricing:
+          type: object
+          additionalProperties: true
 
     PricingTierRow:
       type: object

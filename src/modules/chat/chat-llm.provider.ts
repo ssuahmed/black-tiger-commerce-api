@@ -4,26 +4,41 @@ import {
   productToCard,
   type ProductFixture,
 } from '../../mocks/catalog.fixtures';
+import {
+  formatIntentHint,
+  selectProductsForChat,
+  type ChatIntent,
+} from './chat-intent';
 import type { ChatProductCard, ChatTurn } from './chat.types';
 import { ChatRulesProvider } from './chat-rules.provider';
 
 const SYSTEM_PROMPT = `You are Black Tiger Ask AI — a helpful lubricants advisor for Black Tiger products in Saudi Arabia.
 
-Hard rules:
+Hard rules (unchanged product safety):
 - ONLY discuss and recommend products / viscosity grades that appear in the catalog list you are given.
-- Answer the shopper's question clearly and helpfully in natural language.
 - NEVER invent grades (for example do not suggest 10W-40 or 10W-50 unless those exact grades are in the catalog).
-- Explain briefly WHY each suggestion fits (grade, segment, specs).
-- If the question is not about lubricants/products, answer briefly and steer back to Black Tiger catalog help.
-- If nothing in the catalog fits, say so honestly and ask one clarifying question (vehicle type, viscosity, diesel vs petrol).
-- If the question is about Black Tiger in general, answer briefly and steer back to Black Tiger catalog help.
-- If nothing in the catalog fits and you have already asked clarifying questions, tell the user to fill the contact form to know more and provide contact details.
 - Never invent product slugs — copy slugs exactly from the catalog list.
-- Prefer a natural chat. Do NOT recommend products on every message.
-- Ask a short clarifying question when details are missing.
-- Only recommend when the shopper wants suggestions or has a clear use case; otherwise set "slugs" to [].
-- Prefer the shopper's language when they write in Arabic; otherwise clear English.
 - Keep replies concise. The "reply" value must be plain shopper text — never include the words reply: or slugs: or raw JSON.
+
+Vehicle / use-case rules (important):
+- Shoppers often name a vehicle (make/model/year). The catalog lists lubricants, NOT vehicles.
+- NEVER say a vehicle (e.g. Ford Mustang) is "not in the catalog" or that you lack information on that vehicle.
+- Instead, infer the use-case: light passenger / sports cars → passenger-cars + petrol-engine oils; commercial trucks → commercial + diesel; etc.
+- When the use-case is clear, recommend suitable catalog products and briefly explain why (segment, viscosity, application).
+- Ask petrol vs diesel or viscosity only if truly needed to choose among catalog options.
+- Prefer recommending products when the shopper states a clear need (e.g. "engine oil for my Mustang").
+
+Conversation rules:
+- Answer the shopper's question clearly and helpfully in natural language.
+- Prefer a natural chat. Do NOT recommend products on every greeting-only message.
+- If the question is not about lubricants/products, answer briefly and steer back to Black Tiger catalog help.
+- If no catalog product fits the inferred use-case, say you could not find a matching lubricant and ask one clarifying question.
+- LANGUAGE (mandatory): Write the entire "reply" in the same language as the shopper's latest message.
+  - Arabic script → reply fully in Arabic (Modern Standard Arabic is fine).
+  - English → reply in English.
+  - Mixed (e.g. Arabic + English brand names) → reply in the shopper's dominant language; keep product names/grades as written in the catalog.
+  - Never answer Arabic questions in English (or the reverse) unless the shopper explicitly asks to switch.
+- Viscosity grades (5W-30), product names, and slugs may stay in Latin script even inside Arabic replies.
 
 Output format (mandatory):
 Return ONE valid JSON object and nothing else:
@@ -55,8 +70,8 @@ export class ChatLlmProvider {
     }
 
     try {
-      const catalog = this.selectCatalogSlice(message, products, 30);
-      const llm = await this.callLlm(message, catalog, history);
+      const { intent, slice: catalog } = selectProductsForChat(message, products, 30);
+      const llm = await this.callLlm(message, catalog, history, intent);
       if (!llm) {
         throw new Error('Empty LLM response');
       }
@@ -73,7 +88,7 @@ export class ChatLlmProvider {
         reply: this.sanitizeReply(llm.reply) ||
           (cards.length
             ? 'Here are products that may fit your need.'
-            : 'Tell me a bit more — vehicle type, petrol or diesel, and preferred viscosity if you know it.'),
+            : 'Tell me a bit more — petrol or diesel, and preferred viscosity if you know it.'),
         products: cards,
         provider: 'llm',
       };
@@ -86,60 +101,21 @@ export class ChatLlmProvider {
     }
   }
 
-  /** Prefer products that match query tokens; always include a broad slice for small catalogs. */
-  private selectCatalogSlice(
-    message: string,
-    products: ProductFixture[],
-    max: number,
-  ): ProductFixture[] {
-    if (products.length <= max) return products;
-    const tokens = message
-      .toLowerCase()
-      .split(/[^a-z0-9]+/i)
-      .filter((t) => t.length >= 2);
-    const scored = products.map((p) => {
-      const hay = [
-        p.slug,
-        p.name,
-        p.productCode,
-        p.categorySlug,
-        p.categoryLabel,
-        p.shortDescription,
-        p.subtitle,
-        ...(p.segmentTags ?? []),
-        ...(p.specifications ?? []),
-        ...(p.benefits ?? []),
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      let score = 0;
-      for (const t of tokens) {
-        if (hay.includes(t)) score += t.length >= 4 ? 3 : 1;
-      }
-      return { p, score };
-    });
-    scored.sort((a, b) => b.score - a.score);
-    const matched = scored.filter((s) => s.score > 0).map((s) => s.p);
-    if (matched.length >= Math.min(8, max)) {
-      return matched.slice(0, max);
-    }
-    // Mix matches with head of catalog so LLM still sees variety.
-    const rest = scored.filter((s) => s.score === 0).map((s) => s.p);
-    return [...matched, ...rest].slice(0, max);
-  }
-
   private formatCatalogLine(p: ProductFixture): string {
     const specs = (p.specifications ?? []).slice(0, 4).join('; ');
     const benefits = (p.benefits ?? []).slice(0, 3).join('; ');
     const tags = (p.segmentTags ?? []).join(',');
+    const apps = (p.applicationTags ?? []).join(',');
     const desc = (p.shortDescription || p.subtitle || '').replace(/\s+/g, ' ').trim().slice(0, 160);
     const parts = [
       `slug=${p.slug}`,
       `name=${p.name}`,
       `code=${p.productCode}`,
       `category=${p.categorySlug}`,
+      p.viscosity ? `viscosity=${p.viscosity}` : '',
       tags ? `segments=${tags}` : '',
+      apps ? `applications=${apps}` : '',
+      p.productLine ? `line=${p.productLine}` : '',
       desc ? `desc=${desc}` : '',
       specs ? `specs=${specs}` : '',
       benefits ? `benefits=${benefits}` : '',
@@ -153,7 +129,6 @@ export class ChatLlmProvider {
     const raw = (this.config.get<string>('CHAT_LLM_JSON_MODE') ?? '').trim().toLowerCase();
     if (raw === '0' || raw === 'false' || raw === 'off') return false;
     if (raw === '1' || raw === 'true' || raw === 'on') return true;
-    // Ollama / local OpenAI-compatible servers often reject response_format.
     const base = (this.config.get<string>('CHAT_LLM_BASE_URL') || '').toLowerCase();
     if (base.includes('11434') || base.includes('ollama')) return false;
     return true;
@@ -163,6 +138,7 @@ export class ChatLlmProvider {
     message: string,
     catalog: ProductFixture[],
     history: ChatTurn[],
+    intent: ChatIntent,
   ): Promise<{ reply: string; slugs: string[] } | null> {
     const apiKey = this.config.get<string>('CHAT_LLM_API_KEY')?.trim() || 'ollama';
     const baseUrl = (
@@ -172,6 +148,7 @@ export class ChatLlmProvider {
 
     const catalogBlock = catalog.map((p) => this.formatCatalogLine(p)).join('\n');
     const grades = this.catalogGrades(catalog);
+    const intentHint = formatIntentHint(intent);
     const prior = history
       .slice(-6)
       .filter((t) => t.content?.trim())
@@ -190,14 +167,23 @@ export class ChatLlmProvider {
           content: [
             `Allowed viscosity grades in this catalog ONLY: ${grades.join(', ') || 'see product lines'}.`,
             'Do not mention any other viscosity grade.',
+            intentHint ? `Retrieval hint: ${intentHint}` : '',
             'Black Tiger catalog (slugs must be copied exactly from these lines):',
             catalogBlock,
-          ].join('\n'),
+          ]
+            .filter(Boolean)
+            .join('\n'),
         },
         ...prior,
         {
           role: 'user',
-          content: `${message}\n\nReturn ONLY valid JSON like {"reply":"...","slugs":[]}. Plain text inside reply. Only use catalog grades/slugs.`,
+          content: [
+            message,
+            '',
+            intent.language === 'ar'
+              ? 'Respond in Arabic. Return ONLY valid JSON like {"reply":"...","slugs":[]}. Plain text inside reply. Only use catalog grades/slugs. If a vehicle was named, recommend matching lubricants — never claim the vehicle is missing from the catalog.'
+              : 'Respond in English. Return ONLY valid JSON like {"reply":"...","slugs":[]}. Plain text inside reply. Only use catalog grades/slugs. If a vehicle was named, recommend matching lubricants — never claim the vehicle is missing from the catalog.',
+          ].join('\n'),
         },
       ],
     };
@@ -226,7 +212,6 @@ export class ChatLlmProvider {
     return this.parseLlmJson(content);
   }
 
-  /** Parse model JSON; tolerate markdown fences / loose key:value output from small models. */
   private parseLlmJson(content: string): { reply: string; slugs: string[] } {
     const trimmed = content.trim();
     const candidates = [trimmed];
@@ -274,7 +259,6 @@ export class ChatLlmProvider {
   private sanitizeReply(text: string): string {
     let out = String(text ?? '').trim();
     if (!out) return '';
-    // Strip accidental JSON wrappers the model leaked into the bubble.
     out = out.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
     if (/^\s*\{[\s\S]*\}\s*$/.test(out)) {
       try {
@@ -297,7 +281,7 @@ export class ChatLlmProvider {
     const found = new Set<string>();
     const re = /(\d+)\s*w\s*[- ]?\s*(\d+)/gi;
     for (const p of products) {
-      const hay = `${p.slug} ${p.name} ${p.shortDescription ?? ''}`;
+      const hay = `${p.slug} ${p.name} ${p.shortDescription ?? ''} ${p.viscosity ?? ''}`;
       let m: RegExpExecArray | null;
       re.lastIndex = 0;
       while ((m = re.exec(hay))) {

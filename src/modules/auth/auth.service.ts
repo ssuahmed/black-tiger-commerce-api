@@ -31,6 +31,7 @@ import {
   OdooCustomerService,
   type StorefrontAuthProfile,
 } from '../../infrastructure/odoo/odoo-customer.service';
+import { WhatsAppCloudService } from '../../infrastructure/whatsapp/whatsapp-cloud.service';
 import {
   PersistenceService,
   type StoredUser,
@@ -48,6 +49,8 @@ import type {
   RegisterDto,
 } from './auth.dto';
 
+type OtpChannel = 'email' | 'sms' | 'whatsapp';
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -58,6 +61,7 @@ export class AuthService {
     private readonly config: ConfigService,
     private readonly odooCustomers: OdooCustomerService,
     private readonly mail: MailService,
+    private readonly whatsapp: WhatsAppCloudService,
   ) {}
 
   private isLiveAuth(): boolean {
@@ -65,11 +69,21 @@ export class AuthService {
   }
 
   private generateOtpCode(): string {
-    // Stable code in development so local smoke/e2e stay simple; still emailed.
-    if (this.config.get<string>('NODE_ENV') === 'development') {
+    // Stable code in development so local smoke/e2e stay simple; still emailed / WhatsApp-stubbed.
+    if (this.isDevMode()) {
       return '123456';
     }
     return String(100000 + Math.floor(Math.random() * 900000));
+  }
+
+  private resolveOtpChannel(
+    identifierType: 'email' | 'mobile',
+    requested?: OtpChannel,
+  ): OtpChannel {
+    if (identifierType === 'email') return 'email';
+    if (requested === 'sms' || requested === 'whatsapp') return requested;
+    // Mobile default: WhatsApp first
+    return 'whatsapp';
   }
 
   private async deliverOtp(
@@ -79,41 +93,63 @@ export class AuthService {
     },
     purpose: 'login' | 'register' | 'reset_password',
     code: string,
+    channel: OtpChannel,
   ): Promise<void> {
-    if (ch.identifierType !== 'email') {
-      this.logger.warn(
-        `OTP for mobile ${this.maskIdentifier(ch.identifier, 'mobile')} — SMS not configured; code logged in development only`,
-      );
-      if (this.config.get<string>('NODE_ENV') === 'development') {
-        this.logger.log(`Dev OTP (mobile): ${code}`);
+    if (channel === 'email' || ch.identifierType === 'email') {
+      if (!this.mail.isConfigured()) {
+        this.logger.warn(
+          `SMTP not configured — OTP for ${this.maskIdentifier(ch.identifier, 'email')} not emailed`,
+        );
+        if (this.isDevMode()) {
+          this.logger.log(`Dev OTP (email): ${code}`);
+        }
+        return;
+      }
+      try {
+        await this.mail.sendOtpEmail({
+          to: ch.identifier,
+          code,
+          purpose,
+          expiresInSeconds: OTP_EXPIRY_SEC,
+        });
+      } catch (err) {
+        throw new ServiceUnavailableException(
+          'Unable to send verification email. Please try again shortly.',
+        );
       }
       return;
     }
-    if (!this.mail.isConfigured()) {
-      this.logger.warn(
-        `SMTP not configured — OTP for ${this.maskIdentifier(ch.identifier, 'email')} not emailed`,
-      );
-      if (this.config.get<string>('NODE_ENV') === 'development') {
-        this.logger.log(`Dev OTP (email): ${code}`);
+
+    if (channel === 'whatsapp') {
+      try {
+        await this.whatsapp.sendOtp({
+          to: ch.identifier,
+          code,
+          purpose,
+        });
+      } catch {
+        throw new ServiceUnavailableException(
+          'Unable to send verification code on WhatsApp. Please try again shortly.',
+        );
       }
       return;
     }
-    try {
-      await this.mail.sendOtpEmail({
-        to: ch.identifier,
-        code,
-        purpose,
-        expiresInSeconds: OTP_EXPIRY_SEC,
-      });
-    } catch (err) {
-      throw new ServiceUnavailableException(
-        'Unable to send verification email. Please try again shortly.',
-      );
+
+    // SMS channel — provider not wired yet; stub like WhatsApp when unconfigured
+    this.logger.warn(
+      `OTP for mobile ${this.maskIdentifier(ch.identifier, 'mobile')} — SMS not configured; code logged in development only`,
+    );
+    if (this.isDevMode()) {
+      this.logger.log(`Dev OTP (sms): ${code}`);
     }
   }
 
-  private authProfileToUser(profile: StorefrontAuthProfile): StoredUser {
-    if (!profile.partnerId || !profile.email) {
+  private authProfileToUser(
+    profile: StorefrontAuthProfile,
+    emailFallback?: string,
+  ): StoredUser {
+    const email = (profile.email || emailFallback || '').trim();
+    if (!profile.partnerId || !email) {
       throw new ServiceUnavailableException(
         'Odoo auth profile is missing partner identity.',
       );
@@ -121,17 +157,20 @@ export class AuthService {
     const id = partnerAccountId(profile.partnerId);
     return {
       id,
-      email: profile.email,
+      email,
       segment: profile.segment ?? 'b2c',
       approvalStatus: profile.approvalStatus ?? null,
-      displayName: profile.name ?? profile.email.split('@')[0],
+      displayName: profile.name ?? email.split('@')[0],
       phone: profile.phone ? String(profile.phone) : undefined,
       odooPartnerId: profile.partnerId,
     };
   }
 
-  private cacheFromProfile(profile: StorefrontAuthProfile): StoredUser {
-    const user = this.authProfileToUser(profile);
+  private cacheFromProfile(
+    profile: StorefrontAuthProfile,
+    emailFallback?: string,
+  ): StoredUser {
+    const user = this.authProfileToUser(profile, emailFallback);
     this.persistence.cacheSessionUser(user);
     return user;
   }
@@ -141,18 +180,34 @@ export class AuthService {
     if (this.persistence.usersById.has(payload.sub)) {
       return;
     }
+
+    // Always restore a minimal session from the JWT so account routes work even
+    // when Odoo hydrate fails (e.g. B2B company partner without email on file).
+    if (payload.email) {
+      this.persistence.cacheSessionUser({
+        id: payload.sub,
+        email: payload.email,
+        segment: payload.segment ?? 'b2c',
+        approvalStatus: payload.approvalStatus ?? null,
+        displayName: payload.email.split('@')[0],
+        odooPartnerId:
+          payload.odooPartnerId ?? parsePartnerAccountId(payload.sub) ?? undefined,
+      });
+    }
+
     if (!this.isLiveAuth()) {
       return;
     }
     try {
-      const partnerId = parsePartnerAccountId(payload.sub);
+      const partnerId =
+        parsePartnerAccountId(payload.sub) ?? payload.odooPartnerId ?? undefined;
       const profile = await this.odooCustomers.getAuthProfile(
-        partnerId
-          ? { partnerId }
-          : { email: payload.email },
+        partnerId ? { partnerId } : { email: payload.email },
       );
       if (profile.ok && profile.partnerId) {
-        this.cacheFromProfile(profile);
+        const user = this.authProfileToUser(profile, payload.email);
+        // Keep JWT ``sub`` as the cache key so account lookups match the token.
+        this.persistence.cacheSessionUser({ ...user, id: payload.sub });
       }
     } catch (err) {
       this.logger.warn(
@@ -282,11 +337,14 @@ export class AuthService {
     return this.findFixtureUserByIdentifier(key);
   }
 
+  private isDevMode(): boolean {
+    const env =
+      this.config.get<string>('NODE_ENV') || process.env.NODE_ENV || '';
+    return env === 'development' || env === 'dev';
+  }
+
   private isDevOtp(code: string): boolean {
-    return (
-      this.config.get<string>('NODE_ENV') === 'development' &&
-      code === '123456'
-    );
+    return this.isDevMode() && String(code || '').trim() === '123456';
   }
 
   getPasswordPolicy() {
@@ -353,7 +411,7 @@ export class AuthService {
           challengeId,
           maskedDestination: this.maskIdentifier(identifier, type),
           destinationType:
-            type === 'email' ? ('email' as const) : ('sms' as const),
+            type === 'email' ? ('email' as const) : ('whatsapp' as const),
           identifierType: type,
         };
       }
@@ -368,7 +426,7 @@ export class AuthService {
         challengeId,
         maskedDestination: this.maskIdentifier(identifier, type),
         destinationType:
-          type === 'email' ? ('email' as const) : ('sms' as const),
+          type === 'email' ? ('email' as const) : ('whatsapp' as const),
         identifierType: type,
       };
     }
@@ -384,7 +442,7 @@ export class AuthService {
       availableMethods: ['otp', 'password'] as const,
       challengeId,
       maskedDestination: this.maskIdentifier(identifier, type),
-      destinationType: type === 'email' ? ('email' as const) : ('sms' as const),
+      destinationType: type === 'email' ? ('email' as const) : ('whatsapp' as const),
       identifierType: type,
     };
   }
@@ -475,19 +533,20 @@ export class AuthService {
     ) {
       throw new HttpException('Resend too soon', HttpStatus.TOO_MANY_REQUESTS);
     }
+    const channel = this.resolveOtpChannel(ch.identifierType, dto.channel);
     const code = this.generateOtpCode();
     ch.otpCode = code;
     ch.otpExpiresAt = now + OTP_EXPIRY_SEC * 1000;
     ch.lastOtpSentAt = now;
+    ch.otpChannel = channel;
     this.persistence.authChallenges.set(dto.challengeId, ch);
-    await this.deliverOtp(ch, dto.purpose, code);
+    await this.deliverOtp(ch, dto.purpose, code, channel);
     return {
       challengeId: dto.challengeId,
       expiresInSeconds: OTP_EXPIRY_SEC,
       resendAvailableInSeconds: OTP_COOLDOWN_SEC,
       maskedDestination: this.maskIdentifier(ch.identifier, ch.identifierType),
-      destinationType:
-        ch.identifierType === 'email' ? ('email' as const) : ('sms' as const),
+      destinationType: channel,
     };
   }
 
@@ -514,19 +573,23 @@ export class AuthService {
       : ch.intent === 'register'
         ? ('register' as const)
         : ('login' as const);
+    const channel = this.resolveOtpChannel(
+      ch.identifierType,
+      dto.channel ?? ch.otpChannel,
+    );
     const code = this.generateOtpCode();
     ch.otpCode = code;
     ch.otpExpiresAt = now + OTP_EXPIRY_SEC * 1000;
     ch.lastOtpSentAt = now;
+    ch.otpChannel = channel;
     this.persistence.authChallenges.set(dto.challengeId, ch);
-    await this.deliverOtp(ch, purpose, code);
+    await this.deliverOtp(ch, purpose, code, channel);
     return {
       challengeId: dto.challengeId,
       expiresInSeconds: OTP_EXPIRY_SEC,
       resendAvailableInSeconds: OTP_COOLDOWN_SEC,
       maskedDestination: this.maskIdentifier(ch.identifier, ch.identifierType),
-      destinationType:
-        ch.identifierType === 'email' ? ('email' as const) : ('sms' as const),
+      destinationType: channel,
     };
   }
 
@@ -535,12 +598,13 @@ export class AuthService {
     if (!ch) {
       throw new UnauthorizedException('Invalid or expired OTP');
     }
+    const code = String(dto.code || '').trim();
     const otpOk =
       !!(
         ch.otpExpiresAt &&
         Date.now() < ch.otpExpiresAt &&
-        ch.otpCode === dto.code
-      ) || this.isDevOtp(dto.code);
+        ch.otpCode === code
+      ) || this.isDevOtp(code);
     if (!otpOk) {
       throw new UnauthorizedException('Invalid or expired OTP');
     }
@@ -552,7 +616,11 @@ export class AuthService {
           : ch.identifier;
       const user = await this.findUserByIdentifier(lookup);
       if (!user) {
-        throw new UnauthorizedException('Invalid or expired OTP');
+        throw new UnauthorizedException(
+          ch.identifierType === 'mobile'
+            ? 'No account found for this mobile number'
+            : 'No account found for this email',
+        );
       }
       const token = newId();
       this.persistence.resetSessions.set(token, {
@@ -575,7 +643,7 @@ export class AuthService {
       const emailKey =
         ch.identifierType === 'email'
           ? ch.identifier.toLowerCase()
-          : `${ch.identifier}.mobile@blacktiger.local`;
+          : `${ch.identifier.replace(/\D/g, '')}.mobile@blacktiger.local`;
       const displayEmail =
         ch.identifierType === 'email' ? ch.identifier : emailKey;
       if (await this.userExists(emailKey)) {
@@ -595,9 +663,30 @@ export class AuthService {
       ch.identifierType === 'email'
         ? ch.identifier.toLowerCase()
         : ch.identifier;
-    const user = await this.findUserByIdentifier(lookup);
+    let user = await this.findUserByIdentifier(lookup);
+
+    // Dev smoke path: mobile WhatsApp OTP with 123456 can complete without a
+    // pre-existing partner (creates a storefront user on the fly).
+    if (!user && this.isDevOtp(code) && ch.identifierType === 'mobile') {
+      const digits = ch.identifier.replace(/\D/g, '') || 'mobile';
+      const email = `${digits}@dev.whatsapp.local`;
+      this.logger.warn(
+        `Dev OTP login: provisioning storefront user for ${ch.identifier}`,
+      );
+      user = await this.persistNewUser({
+        email,
+        passwordHash: hashPassword(newId()),
+        displayName: ch.identifier,
+        phone: ch.identifier,
+      });
+    }
+
     if (!user) {
-      throw new UnauthorizedException('Invalid or expired OTP');
+      throw new UnauthorizedException(
+        ch.identifierType === 'mobile'
+          ? 'No account found for this mobile number'
+          : 'No account found for this email',
+      );
     }
     const tokens = await this.buildAuthTokens(user);
     return { kind: 'tokens' as const, data: tokens };
@@ -630,6 +719,9 @@ export class AuthService {
       const challengeId = newId();
       const code = this.generateOtpCode();
       const now = Date.now();
+      const channel = this.resolveOtpChannel(
+        type === 'email' ? 'email' : 'mobile',
+      );
       this.persistence.authChallenges.set(challengeId, {
         challengeId,
         identifier: key,
@@ -639,6 +731,7 @@ export class AuthService {
         otpCode: code,
         otpExpiresAt: now + OTP_EXPIRY_SEC * 1000,
         lastOtpSentAt: now,
+        otpChannel: channel,
       });
       await this.deliverOtp(
         {
@@ -647,6 +740,7 @@ export class AuthService {
         },
         'reset_password',
         code,
+        channel,
       );
       return {
         message: 'If an account exists, instructions have been sent.',
@@ -678,7 +772,7 @@ export class AuthService {
           'Unable to send password reset email. Please try again shortly.',
         );
       }
-    } else if (this.config.get<string>('NODE_ENV') === 'development') {
+    } else if (this.isDevMode()) {
       this.logger.log(`Dev password reset URL: ${resetUrl}`);
     }
     return {

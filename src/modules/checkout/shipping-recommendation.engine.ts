@@ -11,6 +11,12 @@ import type {
 } from './shipping-recommendation.types';
 import type { StorefrontShippingOption } from '../../infrastructure/odoo/odoo-shipping.service';
 import { CartLogisticsService } from '../cart/cart-logistics.service';
+import {
+  FLEET_AUTO_OPTION_ID,
+  formatFleetSar,
+  packVehiclesForPallets,
+  VEHICLE_CATALOG,
+} from './vehicle-fleet';
 
 const DEFAULT_BOX_PER_PALLET = 48;
 const TARGET_UTILIZATION = 0.9;
@@ -22,15 +28,12 @@ export class ShippingRecommendationEngine {
   ) {}
 
   build(
-    baseOptions: StorefrontShippingOption[],
+    _baseOptions: StorefrontShippingOption[],
     lines: CartLineForShipping[],
     productsBySlug: Record<string, ProductFixture>,
   ): ShippingOptionsPayload {
     const recommendation = this.buildRecommendation(lines, productsBySlug);
-    const options = this.annotateOptions(
-      baseOptions,
-      recommendation.efficiency.score,
-    );
+    const options = this.buildFleetOptions(recommendation);
     return { options, recommendation };
   }
 
@@ -47,6 +50,8 @@ export class ShippingRecommendationEngine {
       totalNetWeightKg: logistics.totalNetWeightKg,
       totalPalletsForShipping: logistics.totalPalletsForShipping,
     };
+    const fleetPlan = packVehiclesForPallets(logistics.totalPalletsForShipping);
+
     if (!lines.length) {
       return {
         efficiency: { score: 0, utilizationPct: 0 },
@@ -57,6 +62,7 @@ export class ShippingRecommendationEngine {
         suggestedProducts: [],
         palletBreakdown,
         logistics,
+        fleetPlan,
       };
     }
 
@@ -93,48 +99,67 @@ export class ShippingRecommendationEngine {
     const utilization =
       palletWeight > 0 ? Math.min(1, weightedFill / palletWeight) : 0;
     const score = Math.round(utilization * 100);
-    const hints = this.buildHints(utilLines, score);
-    const message = this.buildMessage(score);
-    const suggestedProducts = this.suggestProducts(lines, productsBySlug);
+    const hints = this.buildHints(utilLines, score, fleetPlan);
+    const message = this.buildMessage(score, fleetPlan);
 
     return {
       efficiency: { score, utilizationPct: score },
       hints,
       message,
       lines: utilLines,
-      suggestedProducts,
+      suggestedProducts: this.suggestProducts(lines, productsBySlug),
       palletBreakdown,
       logistics,
+      fleetPlan,
     };
   }
 
-  private annotateOptions(
-    baseOptions: StorefrontShippingOption[],
-    score: number,
+  private buildFleetOptions(
+    recommendation: ShippingRecommendation,
   ): EnrichedShippingOption[] {
-    if (!baseOptions.length) return [];
+    const plan = recommendation.fleetPlan ?? packVehiclesForPallets(0);
+    const vehicleRows: EnrichedShippingOption[] = plan.vehicles.map((v) => ({
+      id: v.id,
+      label: v.label,
+      etaDays: VEHICLE_CATALOG.find((c) => c.id === v.id)?.etaDays ?? 5,
+      price: {
+        currency: 'SAR',
+        amount: v.unitPrice,
+        formatted: formatFleetSar(v.unitPrice),
+      },
+      recommended: false,
+      reason: null,
+      qty: v.qty,
+      palletsLoaded: v.palletsLoaded,
+      unitPrice: v.unitPrice,
+      lineTotal: v.lineTotal,
+      isFleetTotal: false,
+    }));
 
-    // Prefer standard freight when efficiency is high; express when low / urgent fill.
-    const preferStandard = score >= 70;
-    const preferredId = preferStandard
-      ? (baseOptions.find((o) => /standard|pallet/i.test(o.id + o.label))?.id ??
-        baseOptions[0].id)
-      : (baseOptions.find((o) => /express/i.test(o.id + o.label))?.id ??
-        baseOptions[baseOptions.length - 1].id);
+    const fleetTotal: EnrichedShippingOption = {
+      id: FLEET_AUTO_OPTION_ID,
+      label: 'Calculated vehicle fleet',
+      etaDays: 5,
+      price: {
+        currency: 'SAR',
+        amount: plan.totalAmount,
+        formatted: formatFleetSar(plan.totalAmount),
+      },
+      recommended: true,
+      reason:
+        plan.vehicles.length > 0
+          ? `Optimal mix for ${plan.totalPallets} pallet(s): ${plan.vehicles
+              .map((v) => `${v.qty}× ${v.label}`)
+              .join(' + ')}.`
+          : 'No pallets to ship.',
+      qty: plan.vehicles.reduce((sum, v) => sum + v.qty, 0),
+      palletsLoaded: plan.totalPallets,
+      unitPrice: plan.totalAmount,
+      lineTotal: plan.totalAmount,
+      isFleetTotal: true,
+    };
 
-    return baseOptions.map((opt) => {
-      const recommended = opt.id === preferredId;
-      let reason: string | null = null;
-      if (recommended) {
-        reason =
-          score >= 90
-            ? 'Best match for a well-utilized pallet load.'
-            : score >= 70
-              ? 'Balanced cost for your current pallet fill.'
-              : 'Faster option while you optimize pallet utilization.';
-      }
-      return { ...opt, recommended, reason };
-    });
+    return [...vehicleRows, fleetTotal];
   }
 
   private resolveBoxPerPallet(
@@ -184,8 +209,16 @@ export class ShippingRecommendationEngine {
   private buildHints(
     lines: ShippingLineUtilization[],
     score: number,
+    fleetPlan: ReturnType<typeof packVehiclesForPallets>,
   ): string[] {
     const hints: string[] = [];
+    if (fleetPlan.vehicles.length) {
+      hints.push(
+        `Fleet: ${fleetPlan.vehicles
+          .map((v) => `${v.qty}× ${v.label}`)
+          .join(' + ')} (${formatFleetSar(fleetPlan.totalAmount)}).`,
+      );
+    }
     if (score >= 90) {
       hints.push('Pallet utilization is excellent — proceed with checkout.');
       return hints;
@@ -213,7 +246,7 @@ export class ShippingRecommendationEngine {
         'Consider consolidating into fewer fuller pallets to improve freight efficiency.',
       );
     }
-    if (!hints.length) {
+    if (hints.length <= 1) {
       hints.push(
         'Increase pallet fill toward 90% for a more efficient shipment.',
       );
@@ -221,17 +254,26 @@ export class ShippingRecommendationEngine {
     return hints;
   }
 
-  private buildMessage(score: number): string {
+  private buildMessage(
+    score: number,
+    fleetPlan: ReturnType<typeof packVehiclesForPallets>,
+  ): string {
+    const fleetBit =
+      fleetPlan.vehicles.length > 0
+        ? ` Recommended fleet: ${fleetPlan.vehicles
+            .map((v) => `${v.qty}× ${v.label}`)
+            .join(' + ')}.`
+        : '';
     if (score >= 90) {
-      return `Shipping efficiency ${score}% — great pallet utilization. Standard freight is recommended.`;
+      return `Shipping efficiency ${score}% — great pallet utilization.${fleetBit}`;
     }
     if (score >= 70) {
-      return `Shipping efficiency ${score}%. A few more units could unlock better freight economics.`;
+      return `Shipping efficiency ${score}%. A few more units could unlock better freight economics.${fleetBit}`;
     }
     if (score >= 40) {
-      return `Shipping efficiency ${score}%. Increase your shipping efficiency to 90% or more for optimized pallet freight.`;
+      return `Shipping efficiency ${score}%. Increase your shipping efficiency to 90% or more for optimized pallet freight.${fleetBit}`;
     }
-    return `Shipping efficiency ${score}%. Your load is lightly filled — add volume or switch pallet type to improve utilization.`;
+    return `Shipping efficiency ${score}%. Your load is lightly filled — add volume or switch pallet type to improve utilization.${fleetBit}`;
   }
 
   private suggestProducts(

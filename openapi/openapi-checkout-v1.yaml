@@ -223,7 +223,7 @@ paths:
               properties:
                 method:
                   type: string
-                  enum: [card, cod, wire]
+                  enum: [card, apple_pay, cod, wire]
       responses:
         '201':
           description: >
@@ -727,7 +727,7 @@ components:
           example: SAR
         method:
           type: string
-          enum: [card, cod, wire]
+          enum: [card, apple_pay, cod, wire]
 
     EnvelopePaymentIntent:
       type: object

@@ -194,6 +194,20 @@ export class AccountController {
     return this.account.paymentMethods(this.authUid(req));
   }
 
+  @Get('payments')
+  @UseGuards(JwtAuthGuard)
+  async payments(
+    @Req() req: Request,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.account.payments(
+      this.authUid(req),
+      Number(page ?? 1) || 1,
+      Number(pageSize ?? 50) || 50,
+    );
+  }
+
   @Get('notifications')
   @UseGuards(JwtAuthGuard)
   notifGet(@Req() req: Request) {
@@ -224,6 +238,37 @@ export class AccountController {
       Number(page ?? 1) || 1,
       Number(pageSize ?? 20) || 20,
     );
+  }
+
+  @Post('orders/:orderId/wire-receipt')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }),
+  )
+  wireReceipt(
+    @Req() req: Request,
+    @Param('orderId') orderId: string,
+    @UploadedFile()
+    file:
+      | {
+          originalname?: string;
+          mimetype?: string;
+          size?: number;
+          buffer?: Buffer;
+        }
+      | undefined,
+    @Body('amount') amount?: string,
+    @Body('transferDate') transferDate?: string,
+    @Body('orderNumber') orderNumber?: string,
+  ) {
+    return this.account.uploadWireReceipt(this.authUid(req), {
+      orderId,
+      orderNumber,
+      amount,
+      transferDate,
+      file,
+    });
   }
 
   @Get('returns')
@@ -266,6 +311,32 @@ export class AccountController {
       applicationId,
       documentType ?? 'other',
       file?.originalname ?? 'upload.bin',
+    );
+  }
+
+  @Post('business/documents')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }),
+  )
+  businessDoc(
+    @Req() req: Request,
+    @UploadedFile()
+    file:
+      | {
+          originalname?: string;
+          mimetype?: string;
+          size?: number;
+          buffer?: Buffer;
+        }
+      | undefined,
+    @Body('documentType') documentType: string,
+  ) {
+    return this.account.uploadBusinessDocument(
+      this.authUid(req),
+      documentType ?? '',
+      file,
     );
   }
 }

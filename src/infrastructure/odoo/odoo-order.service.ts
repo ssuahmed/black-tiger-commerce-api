@@ -34,6 +34,14 @@ export interface StorefrontCheckoutPayload {
   shipping_label: string;
   shipping_option_id: string;
   note?: string;
+  payment?: {
+    provider: string;
+    method?: string;
+    status: string;
+    tran_ref?: string;
+    amount?: number;
+    currency?: string;
+  };
 }
 
 export interface OdooSaleOrderResult {
@@ -45,6 +53,18 @@ export interface OdooSaleOrderResult {
   formatted_total: string;
   partner_id: number;
   line_count: number;
+  paytabs_tran_ref?: string | false;
+  payment_status?: string | false;
+  payment?: {
+    recorded?: boolean;
+    payment_id?: number | false;
+    invoice_id?: number;
+    tran_ref?: string | false;
+    reason?: string;
+    idempotent?: boolean;
+    order_state?: string;
+    amount?: number;
+  };
 }
 
 export interface OdooOrdersPage {
@@ -58,6 +78,12 @@ export interface OdooOrdersPage {
     currency: string;
     formattedTotal: string;
     shippingLabel: string | null;
+    paymentMethod?: string | null;
+    paymentProvider?: string | null;
+    paymentStatus?: string | null;
+    paytabsTranRef?: string | null;
+    wireTransferAmount?: number | null;
+    wireTransferDate?: string | null;
   }>;
   pagination: {
     page: number;
@@ -77,6 +103,10 @@ export class OdooOrderService {
     return this.odoo.isConfigured();
   }
 
+  /**
+   * Create/refresh a draft Odoo quotation, or confirm + record payment when
+   * `payment.status` is succeeded for card/apple_pay (idempotent on cart_id).
+   */
   async createStorefrontOrder(
     payload: StorefrontCheckoutPayload,
   ): Promise<OdooSaleOrderResult> {
@@ -89,6 +119,52 @@ export class OdooOrderService {
       throw new Error('Odoo did not return a sale order id');
     }
     return result;
+  }
+
+  async attachWireReceipt(input: {
+    orderId?: number | string;
+    orderNumber?: string;
+    partnerEmail: string;
+    amount?: number;
+    transferDate?: string;
+    fileName: string;
+    mimeType: string;
+    dataBase64: string;
+  }): Promise<{
+    ok: boolean;
+    attachmentId?: number;
+    orderId?: number;
+    orderNumber?: string;
+    paymentStatus?: string;
+    reason?: string;
+  }> {
+    const row = await this.odoo.executeKw<{
+      ok?: boolean;
+      attachment_id?: number;
+      order_id?: number;
+      order_number?: string;
+      payment_status?: string | false;
+      reason?: string;
+    }>('sale.order', 'bt_attach_wire_receipt', [
+      {
+        order_id: input.orderId ? Number(input.orderId) : undefined,
+        order_number: input.orderNumber,
+        partner_email: input.partnerEmail,
+        amount: input.amount,
+        transfer_date: input.transferDate,
+        file_name: input.fileName,
+        mimetype: input.mimeType,
+        datas: input.dataBase64,
+      },
+    ]);
+    return {
+      ok: Boolean(row?.ok),
+      attachmentId: row?.attachment_id ? Number(row.attachment_id) : undefined,
+      orderId: row?.order_id ? Number(row.order_id) : undefined,
+      orderNumber: row?.order_number ? String(row.order_number) : undefined,
+      paymentStatus: row?.payment_status ? String(row.payment_status) : undefined,
+      reason: row?.reason,
+    };
   }
 
   async listStorefrontOrders(

@@ -36,6 +36,7 @@ export function buildStorefrontCheckoutPayload(input: {
   shippingLabel: string;
   shippingOptionId: string;
   note?: string;
+  payment?: StorefrontCheckoutPayload['payment'];
 }): StorefrontCheckoutPayload {
   const shipping = input.resolved['shipping'] as ResolvedAddr | undefined;
   const billing = input.resolved['billing'] as ResolvedAddr | undefined;
@@ -70,5 +71,6 @@ export function buildStorefrontCheckoutPayload(input: {
     shipping_label: input.shippingLabel,
     shipping_option_id: input.shippingOptionId,
     note: input.note,
+    ...(input.payment ? { payment: input.payment } : {}),
   };
 }

@@ -12,6 +12,7 @@ import { CheckoutService } from './checkout.service';
 import { ShippingRecommendationEngine } from './shipping-recommendation.engine';
 import { PromotionsModule } from '../promotions/promotions.module';
 import { GoogleGeocodingService } from '../../infrastructure/google-maps/google-geocoding.service';
+import { OdooCustomerService } from '../../infrastructure/odoo/odoo-customer.service';
 
 @Module({
   imports: [
@@ -28,8 +29,10 @@ import { GoogleGeocodingService } from '../../infrastructure/google-maps/google-
     OdooClient,
     OdooOrderService,
     OdooShippingService,
+    OdooCustomerService,
     ShippingRecommendationEngine,
     GoogleGeocodingService,
   ],
+  exports: [CheckoutService],
 })
 export class CheckoutModule {}

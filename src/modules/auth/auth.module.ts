@@ -6,6 +6,7 @@ import { ACCESS_TOKEN_EXPIRY_SEC } from '../../common/constants';
 import { MailModule } from '../../infrastructure/mail/mail.module';
 import { OdooClient } from '../../infrastructure/odoo/odoo.client';
 import { OdooCustomerService } from '../../infrastructure/odoo/odoo-customer.service';
+import { WhatsAppModule } from '../../infrastructure/whatsapp/whatsapp.module';
 import { PersistenceModule } from '../../persistence/persistence.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
@@ -16,6 +17,7 @@ import { OptionalJwtGuard } from './optional-jwt.guard';
   imports: [
     PersistenceModule,
     MailModule,
+    WhatsAppModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],

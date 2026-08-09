@@ -32,6 +32,8 @@ export interface AuthChallengeRecord {
   otpCode?: string;
   otpExpiresAt?: number;
   lastOtpSentAt?: number;
+  /** Last delivery channel used for OTP (mobile defaults to whatsapp). */
+  otpChannel?: 'email' | 'sms' | 'whatsapp';
   resetPurpose?: boolean;
 }
 
@@ -202,7 +204,7 @@ export interface PaymentIntentEntity {
   paymentIntentId: string;
   cartId: string;
   userId: string;
-  method: 'card' | 'cod' | 'wire';
+  method: 'card' | 'apple_pay' | 'cod' | 'wire';
   amount: number;
   currency: string;
   status:
@@ -243,6 +245,10 @@ export interface OrderEntity {
   };
   shippingOptionId: string;
   shippingLabel: string;
+  paymentMethod?: 'card' | 'apple_pay' | 'cod' | 'wire' | null;
+  paymentProvider?: string | null;
+  paymentStatus?: string | null;
+  paytabsTranRef?: string | null;
 }
 
 @Injectable()

@@ -15,7 +15,7 @@ describe('ChatLlmProvider', () => {
       inStock: true,
       packagingOptions: [],
     },
-  ] as ProductFixture[];
+  ] as unknown as ProductFixture[];
 
   it('uses rules when CHAT_PROVIDER is not llm', async () => {
     const config = {

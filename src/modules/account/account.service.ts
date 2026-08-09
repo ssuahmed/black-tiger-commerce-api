@@ -86,7 +86,8 @@ export class AccountService {
             : 'none'
         : 'none';
     const currency = odoo?.currency ?? 'SAR';
-    const creditLimit = odoo?.creditLimit ?? 0;
+    const creditLimit =
+      Number(odoo?.creditLimitApproved ?? 0) || odoo?.creditLimit ?? 0;
     return {
       id: u.id,
       displayName:
@@ -97,6 +98,13 @@ export class AccountService {
       phone: odoo?.phone || u.phone || null,
       segment,
       approvalStatus: approval,
+      infoVerification: odoo?.infoVerification ?? null,
+      businessProfileComplete:
+        segment === 'b2b' &&
+        (odoo?.infoVerification === 'pending' ||
+          odoo?.infoVerification === 'verified' ||
+          approvalStatus === 'pending' ||
+          approvalStatus === 'approved'),
       avatar: {
         url: null as string | null,
         initials:
@@ -127,9 +135,12 @@ export class AccountService {
       navBadges: { orders: 0, returns: 0, lists: listsCount },
       capabilities: {
         creditsEnabled: true,
-        creditsWithdrawEnabled: segment === 'b2b',
+        creditsWithdrawEnabled:
+          segment === 'b2b' && Boolean(odoo?.creditAccountApproved),
         listsEnabled: true,
         b2bCheckoutEnabled: segment === 'b2b' && approvalStatus === 'approved',
+        hasCreditAccount: Boolean(odoo?.hasCreditAccount),
+        creditAccountApproved: Boolean(odoo?.creditAccountApproved),
       },
     };
   }
@@ -171,44 +182,73 @@ export class AccountService {
     return this.getProfile(userId);
   }
 
-  credits(
+  async credits(
     userId: string,
     tab = 'credits',
     status = 'all',
     page = 1,
     pageSize = 20,
   ) {
-    this.user(userId);
-    const ledger = this.persistence.creditsLedger.get(userId);
-    const balanceAmount = ledger?.balanceAmount ?? 0;
-    const currency = ledger?.currency ?? 'SAR';
-    const txs = [
-      {
-        id: newId(),
+    const u = this.user(userId);
+    const odoo = await this.odooProfile(u.email);
+    const currency = odoo?.currency ?? 'SAR';
+    const hasCreditAccount = Boolean(odoo?.hasCreditAccount);
+    const creditAccountApproved = Boolean(odoo?.creditAccountApproved);
+    const creditLimitApproved = Number(odoo?.creditLimitApproved ?? 0) || 0;
+    const accountInfo =
+      odoo?.creditAccountInfo && typeof odoo.creditAccountInfo === 'object'
+        ? odoo.creditAccountInfo
+        : null;
+
+    const txs: Array<Record<string, unknown>> = [];
+    if (hasCreditAccount && accountInfo) {
+      const billing =
+        accountInfo.billing && typeof accountInfo.billing === 'object'
+          ? (accountInfo.billing as Record<string, unknown>)
+          : {};
+      const preferences =
+        accountInfo.preferences && typeof accountInfo.preferences === 'object'
+          ? (accountInfo.preferences as Record<string, unknown>)
+          : {};
+      const desired = Number(preferences.creditLimitDesired ?? 0) || 0;
+      txs.push({
+        id: 'credit-application',
         createdAt: new Date().toISOString(),
-        type: 'purchase',
-        typeLabel: 'Purchase',
-        details: 'Opening mock balance',
-        reference: 'MOCK-1',
+        type: creditAccountApproved ? 'approved' : 'application',
+        typeLabel: creditAccountApproved ? 'Approved' : 'Application submitted',
+        details: String(billing.companyName || 'Credit account application'),
+        reference: creditAccountApproved ? 'APPROVED' : 'PENDING',
         amount: {
           currency,
-          amount: balanceAmount,
-          formatted: `${balanceAmount.toLocaleString('en-SA')} SAR`,
+          amount: creditAccountApproved ? creditLimitApproved : desired,
+          formatted: this.formatMoney(
+            creditAccountApproved ? creditLimitApproved : desired,
+            currency,
+          ),
         },
         direction: 'credit',
         runningBalance: {
           currency,
-          amount: balanceAmount,
-          formatted: `${balanceAmount.toLocaleString('en-SA')} SAR`,
+          amount: creditLimitApproved,
+          formatted: this.formatMoney(creditLimitApproved, currency),
         },
-      },
-    ];
+      });
+    }
+
     const row = paginate(txs, page, pageSize);
     return {
+      hasCreditAccount,
+      creditAccountApproved,
+      creditLimitApproved: {
+        currency,
+        amount: creditLimitApproved,
+        formatted: this.formatMoney(creditLimitApproved, currency),
+      },
+      accountInfo,
       balance: {
         currency,
-        amount: balanceAmount,
-        formatted: `${balanceAmount.toLocaleString('en-SA')} SAR`,
+        amount: creditLimitApproved,
+        formatted: this.formatMoney(creditLimitApproved, currency),
       },
       tab,
       statusFilter: status,
@@ -229,9 +269,68 @@ export class AccountService {
     };
   }
 
-  listAddresses(userId: string, usage: string, defaultsOnly: boolean) {
-    this.user(userId);
-    let items = [...this.persistence.getUserAddresses(userId).values()];
+  async listAddresses(userId: string, usage: string, defaultsOnly: boolean) {
+    const u = this.user(userId);
+    const memoryItems = [...this.persistence.getUserAddresses(userId).values()];
+    const byKey = new Map<string, (typeof memoryItems)[number]>();
+
+    for (const row of memoryItems) {
+      const key = `${String(row.addressLine1 || '')
+        .trim()
+        .toLowerCase()}|${String(row.city || '')
+        .trim()
+        .toLowerCase()}|${String(row.postalCode || '')
+        .trim()
+        .toLowerCase()}`;
+      byKey.set(key || row.id, row);
+    }
+
+    if (this.odooCustomers.isLive() && u.email) {
+      try {
+        const odooItems = await this.odooCustomers.listStorefrontAddresses(u.email);
+        const now = new Date().toISOString();
+        for (const item of odooItems) {
+          const key = `${item.addressLine1.trim().toLowerCase()}|${item.city
+            .trim()
+            .toLowerCase()}|${String(item.postalCode || '')
+            .trim()
+            .toLowerCase()}`;
+          if (byKey.has(key)) {
+            continue;
+          }
+          const row = {
+            id: item.id,
+            userId,
+            createdAt: now,
+            updatedAt: now,
+            label: item.label,
+            usageTypes: item.usageTypes,
+            companyName: item.companyName,
+            recipientName: item.recipientName,
+            countryCode: item.countryCode,
+            addressLine1: item.addressLine1,
+            addressLine2: item.addressLine2,
+            city: item.city,
+            postalCode: item.postalCode,
+            phone: item.phone,
+            formattedAddress: item.formattedAddress,
+            isDefaultShipping: item.isDefaultShipping,
+            isDefaultBilling: item.isDefaultBilling,
+          };
+          byKey.set(key || item.id, row);
+          // Hydrate ephemeral session cache so checkout address-book can reuse them.
+          this.persistence.getUserAddresses(userId).set(row.id, row);
+        }
+      } catch (err) {
+        this.logger.warn(
+          `Odoo address list failed for ${u.email}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+
+    let items = [...byKey.values()];
     if (usage === 'shipping') {
       items = items.filter((a) => a.usageTypes.includes('shipping'));
     }
@@ -252,11 +351,44 @@ export class AccountService {
     };
   }
 
-  createAddress(userId: string, dto: AddressInputDto) {
-    this.user(userId);
+  async createAddress(userId: string, dto: AddressInputDto) {
+    const u = this.user(userId);
     const now = new Date().toISOString();
+    let id = newId();
+
+    if (this.odooCustomers.isLive() && u.email) {
+      try {
+        const synced = await this.odooCustomers.upsertStorefrontAddress({
+          email: u.email,
+          label: dto.label,
+          usageTypes: dto.usageTypes,
+          recipientName: dto.recipientName,
+          countryCode: dto.countryCode,
+          addressLine1: dto.addressLine1,
+          addressLine2: dto.addressLine2,
+          city: dto.city,
+          postalCode: dto.postalCode,
+          phone: dto.phone,
+          deliveryInstructions: dto.deliveryInstructions,
+        });
+        if (synced.ok && synced.id) {
+          id = synced.id;
+        } else {
+          this.logger.warn(
+            `Odoo address create failed for ${u.email}: ${synced.reason ?? 'unknown'}`,
+          );
+        }
+      } catch (err) {
+        this.logger.warn(
+          `Odoo address create error for ${u.email}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+
     const row: AddressEntity = {
-      id: newId(),
+      id,
       userId,
       createdAt: now,
       updatedAt: now,
@@ -339,9 +471,49 @@ export class AccountService {
     };
   }
 
-  listContacts(userId: string, usage: string, defaultsOnly: boolean) {
-    this.user(userId);
-    const all = [...this.persistence.getUserContacts(userId).values()];
+  async listContacts(userId: string, usage: string, defaultsOnly: boolean) {
+    const u = this.user(userId);
+    const memoryItems = [...this.persistence.getUserContacts(userId).values()];
+    const byId = new Map(memoryItems.map((c) => [c.id, c]));
+
+    if (this.odooCustomers.isLive() && u.email) {
+      try {
+        const odooItems = await this.odooCustomers.listStorefrontContacts(u.email);
+        const now = new Date().toISOString();
+        for (const item of odooItems) {
+          if (byId.has(item.id)) continue;
+          const row: ContactEntity = {
+            id: item.id,
+            userId,
+            createdAt: now,
+            updatedAt: now,
+            label: item.label,
+            usageTypes: ['delivery'],
+            firstName: item.firstName,
+            lastName: item.lastName,
+            email: item.email || '',
+            phone: item.phone || '',
+            mobile: item.mobile ?? null,
+            jobTitle: item.jobTitle,
+            department: undefined,
+            companyName: item.companyName,
+            isDefaultDelivery: false,
+            isDefaultOrderNotifications: false,
+            isDefaultBilling: false,
+          };
+          byId.set(row.id, row);
+          this.persistence.getUserContacts(userId).set(row.id, row);
+        }
+      } catch (err) {
+        this.logger.warn(
+          `Odoo contact list failed for ${u.email}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+
+    const all = [...byId.values()];
     let items = all;
     if (usage !== 'all') {
       items = items.filter((c) => c.usageTypes.includes(usage as never));
@@ -371,11 +543,42 @@ export class AccountService {
     };
   }
 
-  createContact(userId: string, dto: ContactInputDto) {
-    this.user(userId);
+  async createContact(userId: string, dto: ContactInputDto) {
+    const u = this.user(userId);
     const now = new Date().toISOString();
+    let id = newId();
+
+    if (this.odooCustomers.isLive() && u.email) {
+      try {
+        const synced = await this.odooCustomers.upsertStorefrontContact({
+          email: u.email,
+          label: dto.label,
+          firstName: dto.firstName,
+          lastName: dto.lastName,
+          contactEmail: dto.email,
+          phone: dto.phone,
+          mobile: dto.mobile ?? undefined,
+          jobTitle: dto.jobTitle,
+          department: dto.department,
+        });
+        if (synced.ok && synced.id) {
+          id = synced.id;
+        } else {
+          this.logger.warn(
+            `Odoo contact create failed for ${u.email}: ${synced.reason ?? 'unknown'}`,
+          );
+        }
+      } catch (err) {
+        this.logger.warn(
+          `Odoo contact create error for ${u.email}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+
     const row: ContactEntity = {
-      id: newId(),
+      id,
       userId,
       createdAt: now,
       updatedAt: now,
@@ -462,6 +665,56 @@ export class AccountService {
     };
   }
 
+  async payments(userId: string, page = 1, pageSize = 50) {
+    const orders = await this.orders(userId, page, pageSize);
+    const items = (orders.items || []).map((row) => {
+      const method = String(
+        row.paymentMethod || inferPaymentMethod(row) || 'unknown',
+      );
+      const status = String(
+        row.paymentStatus ||
+          defaultPaymentStatus(method, row.status) ||
+          'pending',
+      );
+      const provider = String(
+        row.paymentProvider ||
+          (method === 'card' || method === 'apple_pay'
+            ? 'paytabs'
+            : 'storefront'),
+      );
+      const wireAmount = Number(row.wireTransferAmount);
+      const amount =
+        method === 'wire' && Number.isFinite(wireAmount) && wireAmount > 0
+          ? wireAmount
+          : Number(row.total || 0);
+      const currency = row.currency || 'SAR';
+      return {
+        id: `pay-${row.id}`,
+        orderId: String(row.id),
+        orderNumber: row.orderNumber,
+        method,
+        methodLabel: paymentMethodLabel(method),
+        provider,
+        status,
+        statusLabel: paymentStatusLabel(status),
+        amount,
+        currency,
+        formattedAmount:
+          method === 'wire' && Number.isFinite(wireAmount) && wireAmount > 0
+            ? this.formatMoney(amount, currency)
+            : row.formattedTotal,
+        createdAt: row.createdAt || null,
+        tranRef: row.paytabsTranRef || null,
+        wireTransferDate: row.wireTransferDate || null,
+        wireTransferAmount: row.wireTransferAmount ?? null,
+      };
+    });
+    return {
+      items,
+      pagination: orders.pagination,
+    };
+  }
+
   getNotifications(userId: string) {
     this.user(userId);
     return (
@@ -522,6 +775,12 @@ export class AccountService {
             currency: row.currency,
             formattedTotal: row.formattedTotal,
             shippingLabel: row.shippingLabel,
+            paymentMethod: row.paymentMethod ?? null,
+            paymentProvider: row.paymentProvider ?? null,
+            paymentStatus: row.paymentStatus ?? null,
+            paytabsTranRef: row.paytabsTranRef ?? null,
+            wireTransferAmount: row.wireTransferAmount ?? null,
+            wireTransferDate: row.wireTransferDate ?? null,
           })),
           pagination: pageResult.pagination,
         };
@@ -541,8 +800,126 @@ export class AccountService {
       currency: o.totals.currency,
       formattedTotal: o.totals.formattedGrandTotal,
       shippingLabel: o.shippingLabel,
+      paymentMethod: o.paymentMethod ?? null,
+      paymentProvider: o.paymentProvider ?? null,
+      paymentStatus: o.paymentStatus ?? null,
+      paytabsTranRef: o.paytabsTranRef ?? null,
+      wireTransferAmount: null as number | null,
+      wireTransferDate: null as string | null,
     }));
     return paginate(rows, page, pageSize);
+  }
+
+  async uploadWireReceipt(
+    userId: string,
+    input: {
+      orderId: string;
+      orderNumber?: string;
+      amount?: string;
+      transferDate?: string;
+      file:
+        | {
+            originalname?: string;
+            mimetype?: string;
+            size?: number;
+            buffer?: Buffer;
+          }
+        | undefined;
+    },
+  ) {
+    const user = this.user(userId);
+    if (!input.file?.buffer?.length) {
+      throw new BadRequestException('file is required');
+    }
+    const maxBytes = 10 * 1024 * 1024;
+    if ((input.file.size ?? input.file.buffer.length) > maxBytes) {
+      throw new BadRequestException('File must be 10 MB or smaller');
+    }
+    const mime = String(
+      input.file.mimetype || 'application/octet-stream',
+    ).toLowerCase();
+    if (
+      !AccountService.BUSINESS_DOC_MIMES.has(mime) &&
+      !mime.startsWith('image/') &&
+      mime !== 'application/pdf'
+    ) {
+      throw new BadRequestException('Only PDF or JPEG/PNG files are allowed');
+    }
+
+    const amountRaw = String(input.amount || '').trim();
+    const amount = amountRaw ? Number(amountRaw) : undefined;
+    if (amountRaw && (!Number.isFinite(amount) || Number(amount) <= 0)) {
+      throw new BadRequestException('Transfer amount must be a positive number');
+    }
+    const transferDate = String(input.transferDate || '').trim() || undefined;
+    const fileName = String(
+      input.file.originalname || 'wire-receipt.bin',
+    ).slice(0, 200);
+    const dataBase64 = input.file.buffer.toString('base64');
+    const orderId = String(input.orderId || '').trim();
+    const orderNumber = String(input.orderNumber || '').trim() || undefined;
+
+    if (!this.odooOrders.isLive()) {
+      return {
+        id: newId(),
+        orderId,
+        orderNumber: orderNumber || null,
+        fileName,
+        amount: amount ?? null,
+        transferDate: transferDate || null,
+        uploadedAt: new Date().toISOString(),
+        status: 'submitted',
+        synced: false,
+        reason: 'odoo_offline',
+      };
+    }
+
+    try {
+      const result = await this.odooOrders.attachWireReceipt({
+        orderId,
+        orderNumber,
+        partnerEmail: user.email,
+        amount,
+        transferDate,
+        fileName,
+        mimeType: mime,
+        dataBase64,
+      });
+      if (!result.ok) {
+        if (result.reason === 'order_not_found') {
+          throw new NotFoundException('Order not found');
+        }
+        if (result.reason === 'order_not_owned') {
+          throw new ForbiddenException('Order does not belong to this account');
+        }
+        throw new BadRequestException(
+          result.reason || 'Could not upload wire transfer receipt',
+        );
+      }
+      return {
+        id: String(result.attachmentId ?? newId()),
+        orderId: String(result.orderId ?? orderId),
+        orderNumber: result.orderNumber || orderNumber || null,
+        fileName,
+        amount: amount ?? null,
+        transferDate: transferDate || null,
+        uploadedAt: new Date().toISOString(),
+        status: result.paymentStatus || 'wire_receipt_submitted',
+        synced: true,
+      };
+    } catch (err) {
+      if (
+        err instanceof BadRequestException ||
+        err instanceof NotFoundException ||
+        err instanceof ForbiddenException
+      ) {
+        throw err;
+      }
+      this.logger.warn(
+        `Wire receipt upload failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      throw new BadRequestException('Could not upload wire transfer receipt');
+    }
   }
 
   returns(userId: string, page = 1) {
@@ -598,6 +975,16 @@ export class AccountService {
     const odoo = await this.odooProfile(u.email);
     const segment = odoo?.segment ?? u.segment;
     const approvalStatus = odoo?.approvalStatus ?? u.approvalStatus;
+    const infoVerification = odoo?.infoVerification ?? null;
+    if (odoo?.segment === 'b2b') {
+      u.segment = 'b2b';
+      if (odoo.approvalStatus) {
+        u.approvalStatus = odoo.approvalStatus;
+      }
+      if (odoo.partnerId) {
+        u.odooPartnerId = odoo.partnerId;
+      }
+    }
     const apps = [...this.persistence.creditApplicationsById.values()].filter(
       (a) => a.userId === userId,
     );
@@ -611,11 +998,23 @@ export class AccountService {
         ? ('approved' as const)
         : segment === 'b2b' && approvalStatus === 'pending'
           ? ('submitted' as const)
-          : latest
+          : infoVerification === 'pending' || infoVerification === 'verified'
             ? ('submitted' as const)
-            : ('none' as const);
+            : latest
+              ? ('submitted' as const)
+              : ('none' as const);
+    const businessProfileComplete =
+      segment === 'b2b' &&
+      (infoVerification === 'pending' ||
+        infoVerification === 'verified' ||
+        approvalStatus === 'pending' ||
+        approvalStatus === 'approved');
     return {
       status,
+      segment: segment === 'b2b' ? ('b2b' as const) : ('b2c' as const),
+      infoVerification,
+      companyName: odoo?.companyName || (odoo?.isCompany ? odoo?.name : null) || null,
+      businessProfileComplete,
       applicationId: latest?.applicationId ?? null,
       submittedAt: latest?.submittedAt ?? null,
       reviewedAt: null as string | null,
@@ -651,9 +1050,18 @@ export class AccountService {
             if (partnerId) {
               u.odooPartnerId = partnerId;
             }
+            const saved = await this.odooCustomers.submitCreditAccount({
+              email: u.email,
+              application: dto as unknown as Record<string, unknown>,
+            });
+            if (!saved.ok) {
+              this.logger.warn(
+                `Odoo credit account submit failed for ${u.email}: ${saved.reason ?? 'unknown'}`,
+              );
+            }
           } catch (err) {
             this.logger.warn(
-              `Odoo B2B signup sync failed for ${u.email}: ${
+              `Odoo B2B credit sync failed for ${u.email}: ${
                 err instanceof Error ? err.message : String(err)
               }`,
             );
@@ -688,5 +1096,165 @@ export class AccountService {
     };
     row.documents.push(doc);
     return doc;
+  }
+
+  private static readonly BUSINESS_DOC_TYPES = new Set([
+    'certificate_of_registration',
+    'vat_registration_certificate',
+    'national_address_registration',
+  ]);
+
+  private static readonly BUSINESS_DOC_MIMES = new Set([
+    'application/pdf',
+    'image/jpeg',
+    'image/png',
+    'image/jpg',
+  ]);
+
+  async uploadBusinessDocument(
+    userId: string,
+    documentType: string,
+    file:
+      | {
+          originalname?: string;
+          mimetype?: string;
+          size?: number;
+          buffer?: Buffer;
+        }
+      | undefined,
+  ) {
+    const type = String(documentType || '').trim();
+    if (!AccountService.BUSINESS_DOC_TYPES.has(type)) {
+      throw new BadRequestException(
+        'documentType must be certificate_of_registration, vat_registration_certificate, or national_address_registration',
+      );
+    }
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('file is required');
+    }
+    const maxBytes = 10 * 1024 * 1024;
+    if ((file.size ?? file.buffer.length) > maxBytes) {
+      throw new BadRequestException('File must be 10 MB or smaller');
+    }
+    const mime = String(file.mimetype || 'application/octet-stream').toLowerCase();
+    if (
+      !AccountService.BUSINESS_DOC_MIMES.has(mime) &&
+      !mime.startsWith('image/') &&
+      mime !== 'application/pdf'
+    ) {
+      throw new BadRequestException('Only PDF or JPEG/PNG files are allowed');
+    }
+
+    const user = this.persistence.usersById.get(userId);
+    if (!user?.email) {
+      throw new NotFoundException('User not found');
+    }
+
+    const fileName = String(file.originalname || `${type}.bin`).slice(0, 200);
+    const dataBase64 = file.buffer.toString('base64');
+
+    if (!this.odooCustomers.isLive()) {
+      const stub = {
+        id: newId(),
+        documentType: type,
+        fileName,
+        uploadedAt: new Date().toISOString(),
+        synced: false,
+        reason: 'odoo_offline',
+      };
+      this.logger.warn(
+        `Odoo offline — business document ${type} for ${user.email} not persisted`,
+      );
+      return stub;
+    }
+
+    const result = await this.odooCustomers.attachStorefrontDocument({
+      partnerId: user.odooPartnerId,
+      email: user.email,
+      documentType: type,
+      fileName,
+      mimeType: mime,
+      dataBase64,
+    });
+    if (!result.ok) {
+      this.logger.warn(
+        `Odoo attach failed for ${user.email} (${type}): ${result.reason}`,
+      );
+      throw new BadRequestException(
+        result.reason === 'company_not_found'
+          ? 'Submit the business form first so a company contact exists in Odoo.'
+          : 'Could not attach document in Odoo.',
+      );
+    }
+    if (result.partnerId) {
+      user.odooPartnerId = result.partnerId;
+    }
+    return {
+      id: String(result.attachmentId ?? newId()),
+      documentType: type,
+      fileName,
+      uploadedAt: new Date().toISOString(),
+      synced: true,
+      partnerId: result.partnerId,
+      attachmentId: result.attachmentId,
+    };
+  }
+}
+
+function inferPaymentMethod(row: {
+  paymentMethod?: string | null;
+  paymentProvider?: string | null;
+  paymentStatus?: string | null;
+  paytabsTranRef?: string | null;
+  shippingLabel?: string | null;
+  status?: string;
+}): string | null {
+  if (row.paymentMethod) return String(row.paymentMethod).toLowerCase();
+  const status = String(row.paymentStatus || '').toLowerCase();
+  if (status === 'wire_receipt_submitted') return 'wire';
+  if (row.paytabsTranRef) return 'card';
+  const provider = String(row.paymentProvider || '').toLowerCase();
+  if (provider === 'paytabs') return 'card';
+  return null;
+}
+
+function defaultPaymentStatus(method: string, orderStatus?: string): string {
+  if (method === 'cod') return 'pending';
+  if (method === 'wire') return 'pending';
+  if (orderStatus === 'sale' || orderStatus === 'done') return 'succeeded';
+  return 'pending';
+}
+
+function paymentMethodLabel(method: string): string {
+  switch (method) {
+    case 'card':
+      return 'Card';
+    case 'apple_pay':
+      return 'Apple Pay';
+    case 'cod':
+      return 'Cash on delivery';
+    case 'wire':
+      return 'Wire transfer';
+    default:
+      return method.replace(/_/g, ' ');
+  }
+}
+
+function paymentStatusLabel(status: string): string {
+  switch (status) {
+    case 'succeeded':
+      return 'Paid';
+    case 'pending':
+      return 'Pending';
+    case 'failed':
+      return 'Failed';
+    case 'wire_receipt_submitted':
+      return 'Receipt submitted';
+    case 'requires_payment_method':
+      return 'Awaiting payment';
+    case 'requires_confirmation':
+      return 'Awaiting confirmation';
+    default:
+      return status.replace(/_/g, ' ');
   }
 }

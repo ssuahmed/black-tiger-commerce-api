@@ -25,9 +25,12 @@ export class PaymentService {
     ).toLowerCase();
   }
 
-  /** Card uses PayTabs when configured; COD/wire always use sandbox auto-succeed. */
+  /** Card / Apple Pay use PayTabs when configured; COD/wire always use sandbox auto-succeed. */
   private adapterFor(method: PaymentMethod): PaymentGatewayAdapter {
-    if (method === 'card' && this.gatewayName === 'paytabs') {
+    if (
+      (method === 'card' || method === 'apple_pay') &&
+      this.gatewayName === 'paytabs'
+    ) {
       return this.paytabs;
     }
     return this.sandbox;

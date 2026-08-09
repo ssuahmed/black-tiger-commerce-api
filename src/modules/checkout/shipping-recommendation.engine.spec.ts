@@ -2,24 +2,12 @@ import { ShippingRecommendationEngine } from './shipping-recommendation.engine';
 import type { CartLineForShipping } from './shipping-recommendation.types';
 import type { StorefrontShippingOption } from '../../infrastructure/odoo/odoo-shipping.service';
 import type { ProductFixture } from '../../mocks/catalog.fixtures';
+import { FLEET_AUTO_OPTION_ID } from './vehicle-fleet';
 
 describe('ShippingRecommendationEngine', () => {
   const engine = new ShippingRecommendationEngine();
 
-  const baseOptions: StorefrontShippingOption[] = [
-    {
-      id: 'pallet-standard',
-      label: 'Standard pallet freight',
-      etaDays: 5,
-      price: { currency: 'SAR', amount: 450, formatted: '450 SAR' },
-    },
-    {
-      id: 'express-ltl',
-      label: 'Express LTL',
-      etaDays: 2,
-      price: { currency: 'SAR', amount: 890, formatted: '890 SAR' },
-    },
-  ];
+  const baseOptions: StorefrontShippingOption[] = [];
 
   const productsBySlug: Record<string, ProductFixture> = {
     'tiger-10w30': {
@@ -45,29 +33,33 @@ describe('ShippingRecommendationEngine', () => {
     } as ProductFixture,
   };
 
-  it('returns zero score for empty cart', () => {
+  it('returns zero score for empty cart and fleet-auto option', () => {
     const result = engine.build(baseOptions, [], productsBySlug);
     expect(result.recommendation.efficiency.score).toBe(0);
     expect(result.recommendation.lines).toHaveLength(0);
-    expect(result.options.some((o) => o.recommended)).toBe(true);
+    expect(result.options.some((o) => o.id === FLEET_AUTO_OPTION_ID && o.recommended)).toBe(
+      true,
+    );
   });
 
-  it('scores full pallet at 100', () => {
+  it('scores full pallet at 100 and packs vehicles', () => {
     const lines: CartLineForShipping[] = [
       {
         id: 'l1',
         productSlug: 'tiger-10w30',
         productName: 'TIGER 10W30',
         packagingOptionId: 'pkg-1',
-        quantity: 2,
+        quantity: 8,
         palletType: 'full',
       },
     ];
     const result = engine.build(baseOptions, lines, productsBySlug);
     expect(result.recommendation.efficiency.score).toBe(100);
-    expect(
-      result.options.find((o) => o.id === 'pallet-standard')?.recommended,
-    ).toBe(true);
+    expect(result.recommendation.fleetPlan?.totalPallets).toBe(8);
+    expect(result.recommendation.fleetPlan?.totalAmount).toBe(1500);
+    expect(result.options.find((o) => o.id === 'medium-rigid-6w')?.qty).toBe(1);
+    expect(result.options.find((o) => o.id === 'pickup-3t')?.qty).toBe(1);
+    expect(result.options.find((o) => o.id === FLEET_AUTO_OPTION_ID)?.price.amount).toBe(1500);
   });
 
   it('scores partial fill and emits add-more hint', () => {

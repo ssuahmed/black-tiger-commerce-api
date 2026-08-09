@@ -1,4 +1,4 @@
-export type PaymentMethod = 'card' | 'cod' | 'wire';
+export type PaymentMethod = 'card' | 'apple_pay' | 'cod' | 'wire';
 
 export type PaymentIntentStatus =
   | 'requires_payment_method'
@@ -37,4 +37,9 @@ export interface PaymentGatewayAdapter {
     paymentIntentId: string,
   ): Promise<{ status: 'succeeded' | 'failed' }>;
   getIntentStatus(paymentIntentId: string): PaymentIntentStatus | undefined;
+}
+
+/** Card and Apple Pay both require a confirmed payment intent before submit. */
+export function isHostedCardMethod(method: string | undefined | null): boolean {
+  return method === 'card' || method === 'apple_pay';
 }

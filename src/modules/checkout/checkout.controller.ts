@@ -60,7 +60,7 @@ export class CheckoutController {
   }
 
   @Put(':cartId/address')
-  address(
+  async address(
     @Param('cartId') cartId: string,
     @Body() dto: CheckoutAddressDto,
     @Req() req: Request,

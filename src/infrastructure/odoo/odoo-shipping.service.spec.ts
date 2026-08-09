@@ -1,5 +1,4 @@
 import { ConfigService } from '@nestjs/config';
-import { ServiceUnavailableException } from '@nestjs/common';
 import { OdooClient } from '../odoo/odoo.client';
 import { RedisService } from '../redis/redis.module';
 import { OdooShippingService } from '../odoo/odoo-shipping.service';
@@ -24,38 +23,57 @@ describe('OdooShippingService', () => {
     );
   });
 
-  it('returns fixture options in mock mode', async () => {
+  it('returns vehicle catalog fixtures in mock mode', async () => {
     odoo.isConfigured.mockReturnValue(false);
     const opts = await service.getStorefrontOptions();
-    expect(opts.length).toBe(2);
-    expect(opts[0].id).toBe('pallet-standard');
+    expect(opts.length).toBe(5);
+    expect(opts[0].id).toBe('pickup-3t');
+    expect(opts.map((o) => o.price.amount)).toEqual([500, 1000, 1500, 2000, 2500]);
   });
 
-  it('returns Odoo options in live mode', async () => {
+  it('returns Odoo vehicle options in live mode', async () => {
     odoo.isConfigured.mockReturnValue(true);
     odoo.executeKw.mockResolvedValue([
-      { id: 'pallet-standard', label: 'Std', etaDays: 5, price: { currency: 'SAR', amount: 450, formatted: '450 SAR' } },
+      {
+        id: 'pickup-3t',
+        label: 'Pick-up',
+        etaDays: 5,
+        price: { currency: 'SAR', amount: 500, formatted: '500 SAR' },
+      },
     ]);
     const opts = await service.getStorefrontOptions();
     expect(opts).toHaveLength(1);
+    expect(opts[0].id).toBe('pickup-3t');
     expect(odoo.executeKw).toHaveBeenCalled();
   });
 
   it('serves memory cache on second live call', async () => {
     odoo.isConfigured.mockReturnValue(true);
     odoo.executeKw.mockResolvedValue([
-      { id: 'pallet-standard', label: 'Std', etaDays: 5, price: { currency: 'SAR', amount: 450, formatted: '450 SAR' } },
+      {
+        id: 'medium-rigid-6w',
+        label: 'Medium',
+        etaDays: 5,
+        price: { currency: 'SAR', amount: 1000, formatted: '1,000 SAR' },
+      },
     ]);
     await service.getStorefrontOptions();
     await service.getStorefrontOptions();
     expect(odoo.executeKw).toHaveBeenCalledTimes(1);
   });
 
-  it('throws in live mode when Odoo returns empty list', async () => {
+  it('falls back to vehicle catalog when Odoo returns only removed options', async () => {
     odoo.isConfigured.mockReturnValue(true);
-    odoo.executeKw.mockResolvedValue([]);
-    await expect(service.getStorefrontOptions()).rejects.toBeInstanceOf(
-      ServiceUnavailableException,
-    );
+    odoo.executeKw.mockResolvedValue([
+      {
+        id: 'pallet-standard',
+        label: 'Std',
+        etaDays: 5,
+        price: { currency: 'SAR', amount: 450, formatted: '450 SAR' },
+      },
+    ]);
+    const opts = await service.getStorefrontOptions();
+    expect(opts.length).toBe(5);
+    expect(opts[0].id).toBe('pickup-3t');
   });
 });

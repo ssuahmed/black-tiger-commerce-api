@@ -172,6 +172,32 @@ export class CheckoutInlineContactDto {
   isDefaultBilling?: boolean;
 }
 
+export class CheckoutBusinessDto {
+  @IsOptional()
+  @IsString()
+  organizationName?: string;
+
+  @IsOptional()
+  @IsString()
+  organizationNameAr?: string;
+
+  @IsOptional()
+  @IsString()
+  crNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  vatNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  invitationCode?: string;
+
+  @IsOptional()
+  @IsString()
+  country?: string;
+}
+
 export class CheckoutAddressDto {
   @IsOptional()
   @IsString()
@@ -232,6 +258,15 @@ export class CheckoutAddressDto {
   @IsOptional()
   @IsBoolean()
   saveContacts?: boolean;
+
+  @IsOptional()
+  @IsEnum(['personal', 'business'])
+  accountType?: 'personal' | 'business';
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CheckoutBusinessDto)
+  business?: CheckoutBusinessDto;
 }
 
 export class CheckoutShippingDto {
@@ -253,8 +288,8 @@ export class CheckoutSubmitDto {
   confirm?: boolean;
 
   @IsOptional()
-  @IsEnum(['card', 'cod', 'wire'])
-  paymentMethod?: 'card' | 'cod' | 'wire';
+  @IsEnum(['card', 'apple_pay', 'cod', 'wire'])
+  paymentMethod?: 'card' | 'apple_pay' | 'cod' | 'wire';
 
   @IsOptional()
   @IsString()
@@ -266,8 +301,8 @@ export class CheckoutSubmitDto {
 }
 
 export class CheckoutPaymentIntentDto {
-  @IsEnum(['card', 'cod', 'wire'])
-  method!: 'card' | 'cod' | 'wire';
+  @IsEnum(['card', 'apple_pay', 'cod', 'wire'])
+  method!: 'card' | 'apple_pay' | 'cod' | 'wire';
 }
 
 export class CheckoutConfirmPaymentDto {

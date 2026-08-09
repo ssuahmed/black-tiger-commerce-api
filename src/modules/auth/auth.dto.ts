@@ -50,11 +50,20 @@ export class OtpSendDto {
 
   @IsIn(['login', 'register', 'reset_password'])
   purpose!: 'login' | 'register' | 'reset_password';
+
+  /** Mobile OTP channel. Defaults to whatsapp on the server for mobile identifiers. */
+  @IsOptional()
+  @IsIn(['whatsapp', 'sms', 'email'])
+  channel?: 'whatsapp' | 'sms' | 'email';
 }
 
 export class OtpResendDto {
   @IsString()
   challengeId!: string;
+
+  @IsOptional()
+  @IsIn(['whatsapp', 'sms', 'email'])
+  channel?: 'whatsapp' | 'sms' | 'email';
 }
 
 export class OtpVerifyDto {

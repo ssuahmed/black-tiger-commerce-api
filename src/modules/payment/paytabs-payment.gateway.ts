@@ -74,8 +74,10 @@ export class PayTabsPaymentGateway implements PaymentGatewayAdapter {
     userId: string,
     input: CreatePaymentIntentInput,
   ): Promise<PaymentIntentResult> {
-    if (input.method !== 'card') {
-      throw new BadRequestException('PayTabs gateway only handles card payments');
+    if (input.method !== 'card' && input.method !== 'apple_pay') {
+      throw new BadRequestException(
+        'PayTabs gateway only handles card and Apple Pay payments',
+      );
     }
 
     const amount = Number(input.amount ?? 0);
@@ -105,6 +107,11 @@ export class PayTabsPaymentGateway implements PaymentGatewayAdapter {
       return: this.returnUrl(),
       callback: this.callbackUrl(),
     };
+    if (input.method === 'apple_pay') {
+      body.payment_methods = ['applepay'];
+    } else {
+      body.payment_methods = ['creditcard'];
+    }
 
     let paytabs: PayTabsPaymentResponse;
     try {
@@ -132,7 +139,7 @@ export class PayTabsPaymentGateway implements PaymentGatewayAdapter {
       paymentIntentId,
       cartId,
       userId,
-      method: 'card',
+      method: input.method,
       amount,
       currency,
       status: 'requires_payment_method',

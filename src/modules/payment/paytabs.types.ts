@@ -7,6 +7,8 @@ export interface PayTabsPaymentRequest {
   cart_amount: number;
   cart_description: string;
   paypage_lang?: string;
+  /** Restrict HPP methods, e.g. ['applepay'] or ['creditcard']. */
+  payment_methods?: string[];
   customer_details?: {
     name?: string;
     email?: string;

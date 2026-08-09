@@ -188,7 +188,7 @@ describe('Cart & checkout (e2e)', () => {
     await request(server)
       .put(`/v1/checkout/${cart.id}/shipping`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ shippingOptionId: 'pallet-standard' })
+      .send({ shippingOptionId: 'fleet-auto' })
       .expect(200);
 
     const submitRes = await request(server)

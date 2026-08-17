@@ -1,3 +1,12 @@
+/**
+ * Meta WhatsApp Cloud API client for storefront OTP delivery.
+ *
+ * Used by auth when the identifier is a mobile number (default channel).
+ * When credentials are missing or disabled, logs only (and prints the code
+ * if `USE_MOCK_OTP` is on) so local/dev flows still work.
+ * `WHATSAPP_SEND_HELLO_FOR_TEST` sends Meta's parameter-less `hello_world`
+ * template and still uses mock OTP `123456` even when `USE_MOCK_OTP` is off.
+ */
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
@@ -12,8 +21,13 @@ export type WhatsAppOtpSendInput = {
 export class WhatsAppCloudService {
   private readonly logger = new Logger(WhatsAppCloudService.name);
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly config: ConfigService) {
+    this.logger.log(
+      `WHATSAPP_SEND_HELLO_FOR_TEST=${this.sendHelloForTest() ? 'true' : 'false'}`,
+    );
+  }
 
+  /** True when WhatsApp Cloud env vars are present and not explicitly disabled. */
   isConfigured(): boolean {
     if (this.config.get<string>('WHATSAPP_CLOUD_ENABLED') === 'false') {
       return false;
@@ -21,8 +35,17 @@ export class WhatsAppCloudService {
     return Boolean(
       this.config.get<string>('WHATSAPP_CLOUD_PHONE_NUMBER_ID')?.trim() &&
         this.config.get<string>('WHATSAPP_CLOUD_ACCESS_TOKEN')?.trim() &&
-        this.config.get<string>('WHATSAPP_CLOUD_OTP_TEMPLATE_NAME')?.trim(),
+        (this.sendHelloForTest() ||
+          this.config.get<string>('WHATSAPP_CLOUD_OTP_TEMPLATE_NAME')?.trim()),
     );
+  }
+
+  /**
+   * Dev probe: send `hello_world` (no body/params) and keep OTP as 123456
+   * even when `USE_MOCK_OTP` is false.
+   */
+  sendHelloForTest(): boolean {
+    return this.envFlag('WHATSAPP_SEND_HELLO_FOR_TEST');
   }
 
   private apiVersion(): string {
@@ -32,11 +55,11 @@ export class WhatsAppCloudService {
   }
 
   private useMockOtp(): boolean {
-    const raw = (
-      this.config.get<string>('USE_MOCK_OTP') ??
-      process.env.USE_MOCK_OTP ??
-      ''
-    )
+    return this.envFlag('USE_MOCK_OTP');
+  }
+
+  private envFlag(key: string): boolean {
+    const raw = (this.config.get<string>(key) ?? process.env[key] ?? '')
       .trim()
       .toLowerCase();
     return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
@@ -70,35 +93,45 @@ export class WhatsAppCloudService {
       .get<string>('WHATSAPP_CLOUD_PHONE_NUMBER_ID')!
       .trim();
     const token = this.config.get<string>('WHATSAPP_CLOUD_ACCESS_TOKEN')!.trim();
-    const templateName = this.config
-      .get<string>('WHATSAPP_CLOUD_OTP_TEMPLATE_NAME')!
-      .trim();
-    const language =
-      this.config.get<string>('WHATSAPP_CLOUD_OTP_TEMPLATE_LANGUAGE')?.trim() ||
-      'en';
+    const helloTest = this.sendHelloForTest();
+    const templateName = helloTest
+      ? 'hello_world'
+      : this.config.get<string>('WHATSAPP_CLOUD_OTP_TEMPLATE_NAME')!.trim();
+    const language = helloTest
+      ? 'en_US'
+      : this.config.get<string>('WHATSAPP_CLOUD_OTP_TEMPLATE_LANGUAGE')?.trim() ||
+        'en';
 
     const url = `https://graph.facebook.com/${this.apiVersion()}/${phoneNumberId}/messages`;
+    const template: {
+      name: string;
+      language: { code: string };
+      components?: Array<Record<string, unknown>>;
+    } = {
+      name: templateName,
+      language: { code: language },
+    };
+    if (!helloTest) {
+      template.components = [
+        {
+          type: 'body',
+          parameters: [{ type: 'text', text: input.code }],
+        },
+        {
+          type: 'button',
+          sub_type: 'url',
+          index: '0',
+          parameters: [{ type: 'text', text: input.code }],
+        },
+      ];
+    }
+
     const body = {
       messaging_product: 'whatsapp',
       recipient_type: 'individual',
       to,
       type: 'template',
-      template: {
-        name: templateName,
-        language: { code: language },
-        components: [
-          {
-            type: 'body',
-            parameters: [{ type: 'text', text: input.code }],
-          },
-          {
-            type: 'button',
-            sub_type: 'url',
-            index: '0',
-            parameters: [{ type: 'text', text: input.code }],
-          },
-        ],
-      },
+      template,
     };
 
     const res = await fetch(url, {
@@ -118,6 +151,10 @@ export class WhatsAppCloudService {
       throw new Error(`WhatsApp Cloud API failed (${res.status})`);
     }
 
-    this.logger.log(`WhatsApp OTP sent to +${to} (${input.purpose})`);
+    this.logger.log(
+      helloTest
+        ? `WhatsApp hello_world test sent to +${to} (${input.purpose})`
+        : `WhatsApp OTP sent to +${to} (${input.purpose})`,
+    );
   }
 }

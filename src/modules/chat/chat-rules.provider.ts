@@ -1,3 +1,10 @@
+/**
+ * Deterministic Ask AI recommender (no external LLM).
+ *
+ * Storefront → API → catalog snapshot: used when `CHAT_PROVIDER=rules` or as the
+ * LLM fallback. Infers intent (viscosity/segment/vehicle), filters catalog products,
+ * and builds bilingual replies with product cards. Catalog may originate from Odoo.
+ */
 import { Injectable } from '@nestjs/common';
 import {
   productToCard,
@@ -8,6 +15,7 @@ import type { ChatProductCard } from './chat.types';
 
 @Injectable()
 export class ChatRulesProvider {
+  /** Match the shopper message against the catalog and return a short bilingual reply. */
   recommend(
     message: string,
     products: ProductFixture[],
@@ -23,6 +31,7 @@ export class ChatRulesProvider {
 
     const intent = inferChatIntent(text);
     const ar = intent.language === 'ar';
+    // Greetings without a product ask get an intro, not a random product dump.
     const greeting =
       /^(hi|hello|hey|thanks|thank you|ok|okay|مرحبا|السلام|اهلا|أهلا)\b/i.test(text) ||
       text.length < 8;
@@ -37,6 +46,7 @@ export class ChatRulesProvider {
 
     let matches = products.filter((p) => productMatchesIntent(p, intent));
 
+    // No structured viscosity/segment → fall back to loose token search on product fields.
     if (!intent.viscosityNeedles.length && !intent.segmentSlugs.length) {
       const tokens = text
         .toLowerCase()

@@ -1,3 +1,8 @@
+/**
+ * Storefront sales quotes: snapshot a cart + checkout summary (address,
+ * shipping, logistics, totals) into persistence and generate a downloadable PDF.
+ * Does not create an Odoo sale order — quotes are Commerce-API stubs for buyers.
+ */
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { newId } from '../../common/utils/uuid';
 import type { QuoteStubEntity } from '../../persistence/persistence.service';
@@ -18,6 +23,9 @@ export class QuotesService {
     private readonly checkout: CheckoutService,
   ) {}
 
+  /**
+   * Capture cart/checkout state as a quote stub and return PDF (base64) for download.
+   */
   async create(
     userId: string,
     dto: { cartId: string; notes?: string; purchaseOrderNumber?: string },
@@ -81,6 +89,7 @@ export class QuotesService {
     };
   }
 
+  /** Return a stored quote snapshot for the account. */
   getOne(userId: string, id: string) {
     const row = this.requireQuote(userId, id);
     return {
@@ -100,6 +109,7 @@ export class QuotesService {
     };
   }
 
+  /** Rebuild the PDF buffer for an existing quote. */
   getPdf(userId: string, id: string): { buffer: Buffer; fileName: string } {
     const row = this.requireQuote(userId, id);
     return {
@@ -116,6 +126,7 @@ export class QuotesService {
     return row;
   }
 
+  /** Map quote payload fields into {@link buildQuotePdf}. */
   private buildPdfBuffer(row: QuoteStubEntity): Buffer {
     const lines = (Array.isArray(row.payload['lines'])
       ? row.payload['lines']

@@ -1,3 +1,9 @@
+/**
+ * Optional JWT guard for guest-friendly routes (cart, credit application).
+ *
+ * Missing Bearer → allow anonymous. Present but invalid → 401.
+ * Present and valid → hydrate session and set `req.user`.
+ */
 import {
   CanActivate,
   ExecutionContext,

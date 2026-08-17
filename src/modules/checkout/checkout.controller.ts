@@ -1,3 +1,7 @@
+/**
+ * Authenticated checkout HTTP API: address resolve (Google Maps), warehouses,
+ * shipping options, payment intents, and idempotent order submit.
+ */
 import {
   Body,
   Controller,

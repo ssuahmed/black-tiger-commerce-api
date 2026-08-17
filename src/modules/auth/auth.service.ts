@@ -1,3 +1,11 @@
+/**
+ * Storefront authentication: identifier challenge, password login/register,
+ * OTP (email / WhatsApp / SMS stub), password reset, JWT access+refresh.
+ *
+ * Live mode uses Odoo `res.partner` as credential SSOT via
+ * {@link OdooCustomerService}; session users are cached ephemerally in
+ * {@link PersistenceService}. OTP delivery uses SMTP mail and Meta WhatsApp Cloud.
+ */
 import {
   BadRequestException,
   ConflictException,
@@ -69,13 +77,14 @@ export class AuthService {
   }
 
   private generateOtpCode(): string {
-    // Stable code when USE_MOCK_OTP is enabled (local smoke / e2e).
-    if (this.useMockOtp()) {
+    // Stable code when USE_MOCK_OTP or WHATSAPP_SEND_HELLO_FOR_TEST is on.
+    if (this.useFixedOtp()) {
       return '123456';
     }
     return String(100000 + Math.floor(Math.random() * 900000));
   }
 
+  /** Email identifiers always use email; mobile defaults to WhatsApp. */
   private resolveOtpChannel(
     identifierType: 'email' | 'mobile',
     requested?: OtpChannel,
@@ -86,6 +95,7 @@ export class AuthService {
     return 'whatsapp';
   }
 
+  /** Deliver OTP via SMTP, WhatsApp Cloud, or SMS stub (mock logs when unconfigured). */
   private async deliverOtp(
     ch: {
       identifier: string;
@@ -345,20 +355,26 @@ export class AuthService {
 
   /** When true, OTP is fixed to 123456 and accepted as a mock bypass. */
   private useMockOtp(): boolean {
-    const raw = (
-      this.config.get<string>('USE_MOCK_OTP') ??
-      process.env.USE_MOCK_OTP ??
-      ''
-    )
+    return this.envFlag('USE_MOCK_OTP');
+  }
+
+  /** Hello-world WhatsApp probe still pins OTP to 123456 with USE_MOCK_OTP off. */
+  private useFixedOtp(): boolean {
+    return this.useMockOtp() || this.whatsapp.sendHelloForTest();
+  }
+
+  private envFlag(key: string): boolean {
+    const raw = (this.config.get<string>(key) ?? process.env[key] ?? '')
       .trim()
       .toLowerCase();
     return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
   }
 
   private isMockOtp(code: string): boolean {
-    return this.useMockOtp() && String(code || '').trim() === '123456';
+    return this.useFixedOtp() && String(code || '').trim() === '123456';
   }
 
+  /** Password complexity rules exposed to the storefront signup/reset UI. */
   getPasswordPolicy() {
     return {
       rules: [
@@ -402,6 +418,10 @@ export class AuthService {
     return id.includes('@') ? 'email' : 'mobile';
   }
 
+  /**
+   * Auth entry: email/mobile + login|register intent → next step + challengeId.
+   * Existing users registering are redirected to the login-method step.
+   */
   async submitIdentifier(dto: IdentifierDto) {
     const identifier = dto.identifier.trim();
     const type = this.detectType(identifier);
@@ -459,6 +479,7 @@ export class AuthService {
     };
   }
 
+  /** Password register path: create partner in Odoo (or fixture) and issue JWTs. */
   async register(dto: RegisterDto) {
     if (dto.password !== dto.confirmPassword) {
       throw new BadRequestException('Passwords do not match');
@@ -475,6 +496,7 @@ export class AuthService {
     return this.buildAuthTokens(user);
   }
 
+  /** Password login against Odoo authenticate RPC (or local fixture hash). */
   async login(dto: LoginDto) {
     const identifier = dto.identifier.trim();
     const type = this.detectType(identifier);
@@ -533,6 +555,7 @@ export class AuthService {
     return this.buildAuthTokens(user);
   }
 
+  /** Send OTP for the challenge (cooldown-enforced). */
   async sendOtp(dto: OtpSendDto) {
     const ch = this.persistence.authChallenges.get(dto.challengeId);
     if (!ch) {
@@ -562,6 +585,7 @@ export class AuthService {
     };
   }
 
+  /** Resend OTP using the same or an overridden channel. */
   async resendOtp(dto: OtpResendDto) {
     const ch = this.persistence.authChallenges.get(dto.challengeId);
     if (!ch) {
@@ -605,6 +629,10 @@ export class AuthService {
     };
   }
 
+  /**
+   * Verify OTP for login (tokens), register (create user + tokens), or
+   * password-reset (reset session token).
+   */
   async verifyOtp(dto: OtpVerifyDto) {
     const ch = this.persistence.authChallenges.get(dto.challengeId);
     if (!ch) {
@@ -704,6 +732,10 @@ export class AuthService {
     return { kind: 'tokens' as const, data: tokens };
   }
 
+  /**
+   * Start password reset via OTP challenge or email magic link.
+   * Always returns a generic message when the account is missing (no enumeration).
+   */
   async forgotPassword(dto: ForgotPasswordDto) {
     const id = dto.identifier.trim();
     const type = this.detectType(id);
@@ -795,6 +827,7 @@ export class AuthService {
     };
   }
 
+  /** Validate a password-reset magic-link token without consuming it. */
   async validateResetToken(token: string) {
     const row = this.persistence.resetTokens.get(token);
     if (!row || row.expiresAt < Date.now()) {
@@ -822,6 +855,10 @@ export class AuthService {
     };
   }
 
+  /**
+   * Set a new password via magic-link token, OTP reset session, or inline OTP.
+   * Live mode writes the hash to Odoo; optionally auto-logs the user in.
+   */
   async resetPassword(dto: PasswordResetDto) {
     if (dto.password !== dto.confirmPassword) {
       throw new BadRequestException('Passwords do not match');
@@ -918,6 +955,7 @@ export class AuthService {
     };
   }
 
+  /** Rotate refresh token (revoke old jti) and issue a new access+refresh pair. */
   async refresh(dto: RefreshDto) {
     const secret = this.config.getOrThrow<string>('JWT_REFRESH_SECRET');
     let decoded: { sub: string; jti?: string; type?: string };
@@ -953,6 +991,7 @@ export class AuthService {
     return this.buildAuthTokens(user);
   }
 
+  /** Revoke all refresh tokens for the user (access token expires naturally). */
   logout(userId: string) {
     for (const rec of this.persistence.refreshTokens.values()) {
       if (rec.userId === userId) {
@@ -961,6 +1000,7 @@ export class AuthService {
     }
   }
 
+  /** Issue access + refresh JWTs and cache the refresh jti for rotation. */
   private async buildAuthTokens(user: StoredUser) {
     const payload: JwtPayload = {
       sub: user.id,

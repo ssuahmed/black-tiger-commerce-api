@@ -1,3 +1,9 @@
+/**
+ * CMS content pages for the storefront (about, policies, landing blocks).
+ *
+ * Live: reads `bt.website.page` + blocks from Odoo and caches lists/pages in
+ * Redis via {@link ContentCacheService}. Offline: mock fixtures.
+ */
 import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { CONTENT_PAGES, type ContentPageFixture } from '../../mocks/content.fixtures';
 import { ContentCacheService } from '../../infrastructure/cache/content-cache.service';
@@ -14,6 +20,7 @@ export class ContentService {
     private readonly contentCache: ContentCacheService,
   ) {}
 
+  /** Published page index (slug/name) for storefront CMS nav. */
   async listPages(): Promise<PageListItem[]> {
     const cached = await this.contentCache.getPageList<PageListItem[]>();
     if (cached) {
@@ -51,6 +58,7 @@ export class ContentService {
     }));
   }
 
+  /** Full page payload including CMS blocks for the given slug. */
   async getPage(slug: string): Promise<ContentPageFixture> {
     const cached = await this.contentCache.getPage<ContentPageFixture>(slug);
     if (cached) {

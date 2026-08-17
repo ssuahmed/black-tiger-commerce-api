@@ -1,3 +1,7 @@
+/**
+ * Maps checkout draft + cart lines into the Odoo storefront order RPC payload
+ * (`create_storefront_order` / quotation sync).
+ */
 import type {
   StorefrontAddressInput,
   StorefrontCheckoutPayload,
@@ -5,6 +9,7 @@ import type {
 import type { StoredUser } from '../../persistence/persistence.service';
 import type { ResolvedAddr, ResolvedCt } from './checkout.service';
 
+/** Flatten resolved address + contact into Odoo address fields. */
 function mapAddress(
   addr: ResolvedAddr | undefined,
   contact?: ResolvedCt,
@@ -21,6 +26,7 @@ function mapAddress(
   };
 }
 
+/** Build the full Odoo storefront checkout payload from a prepared cart draft. */
 export function buildStorefrontCheckoutPayload(input: {
   cartId: string;
   user: StoredUser;

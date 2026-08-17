@@ -1,3 +1,10 @@
+/**
+ * Odoo partner/account bridge for storefront auth, profile, addresses, and credit.
+ *
+ * Storefront → API → Odoo: account/auth modules call these methods, which invoke
+ * `res.partner` Black Tiger RPC helpers (`bt_*`) and map snake_case results to camelCase
+ * API DTOs. Many writes no-op or return empty when Odoo is not live.
+ */
 import { Injectable, Logger } from '@nestjs/common';
 import { OdooClient } from './odoo.client';
 
@@ -77,10 +84,12 @@ export class OdooCustomerService {
 
   constructor(private readonly odoo: OdooClient) {}
 
+  /** Whether customer RPCs should hit live Odoo. */
   isLive(): boolean {
     return this.odoo.isConfigured();
   }
 
+  // Normalize Odoo auth RPC shape (snake_case) into the API’s StorefrontAuthProfile.
   private mapAuthProfile(row: OdooAuthProfile | null | undefined): StorefrontAuthProfile {
     if (!row) {
       return { ok: false, reason: 'empty_response' };
@@ -99,6 +108,7 @@ export class OdooCustomerService {
     };
   }
 
+  /** Load full account profile (credit, addresses, approval) by email. */
   async getStorefrontAccount(email: string): Promise<StorefrontAccountProfile> {
     const row = await this.odoo.executeKw<OdooStorefrontAccount>(
       'res.partner',
@@ -134,6 +144,7 @@ export class OdooCustomerService {
     };
   }
 
+  /** List saved shipping/billing addresses; empty when Odoo is offline. */
   async listStorefrontAddresses(email: string): Promise<
     Array<{
       id: string;
@@ -164,6 +175,7 @@ export class OdooCustomerService {
       const usageTypes = usageRaw
         .map((u) => String(u))
         .filter((u): u is 'shipping' | 'billing' => u === 'shipping' || u === 'billing');
+      // Prefix Odoo partner child ids so the API can round-trip them later.
       return {
         id: `odoo:${Number(item.id)}`,
         label: String(item.label || 'Address'),
@@ -185,6 +197,7 @@ export class OdooCustomerService {
     });
   }
 
+  /** Create or update a storefront address child partner in Odoo. */
   async upsertStorefrontAddress(input: {
     email: string;
     addressId?: number;
@@ -237,6 +250,7 @@ export class OdooCustomerService {
     };
   }
 
+  /** List company contact persons linked to the storefront account. */
   async listStorefrontContacts(email: string): Promise<
     Array<{
       id: string;
@@ -272,6 +286,7 @@ export class OdooCustomerService {
     }));
   }
 
+  /** Create or update a storefront contact person under the account partner. */
   async upsertStorefrontContact(input: {
     email: string;
     contactId?: number;
@@ -320,6 +335,7 @@ export class OdooCustomerService {
     };
   }
 
+  /** Push a raw profile payload to Odoo’s `bt_sync_storefront_profile`. */
   async syncStorefrontProfile(payload: Record<string, unknown>): Promise<void> {
     await this.odoo.executeKw('res.partner', 'bt_sync_storefront_profile', [payload]);
   }
@@ -436,6 +452,7 @@ export class OdooCustomerService {
     };
   }
 
+  /** Attach a base64 document (CR, VAT, etc.) to the partner in Odoo. */
   async attachStorefrontDocument(input: {
     partnerId?: number;
     email?: string;
@@ -475,6 +492,7 @@ export class OdooCustomerService {
     };
   }
 
+  /** Check whether a storefront login identifier already maps to a partner. */
   async storefrontUserExists(identifier: string): Promise<{
     exists: boolean;
     partnerId?: number;
@@ -492,6 +510,7 @@ export class OdooCustomerService {
     };
   }
 
+  /** Register a storefront user with a pre-hashed password on the partner. */
   async storefrontRegister(input: {
     email: string;
     name?: string;
@@ -517,6 +536,7 @@ export class OdooCustomerService {
     return this.mapAuthProfile(row);
   }
 
+  /** Verify email/password against Odoo’s storefront auth helper. */
   async storefrontAuthenticate(input: {
     email: string;
     password: string;
@@ -534,6 +554,7 @@ export class OdooCustomerService {
     return this.mapAuthProfile(row);
   }
 
+  /** Update the partner’s storefront password hash (e.g. after reset). */
   async storefrontSetPassword(input: {
     email: string;
     passwordHash: string;
@@ -551,6 +572,7 @@ export class OdooCustomerService {
     return this.mapAuthProfile(row);
   }
 
+  /** Fetch auth/approval flags for JWT issuance without re-checking password. */
   async getAuthProfile(input: {
     partnerId?: number;
     email?: string;
@@ -568,6 +590,7 @@ export class OdooCustomerService {
     return this.mapAuthProfile(row);
   }
 
+  /** Submit a B2B credit-account application for review in Odoo. */
   async submitCreditAccount(input: {
     email: string;
     application: Record<string, unknown>;

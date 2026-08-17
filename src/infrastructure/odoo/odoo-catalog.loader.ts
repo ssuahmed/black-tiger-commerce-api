@@ -1,3 +1,10 @@
+/**
+ * Loads the live Odoo product catalog into the API’s storefront snapshot shape.
+ *
+ * Storefront → API → Odoo: catalog modules call `load()` when `ODOO_MODE=live` to pull
+ * templates, variants, pricelist tiers, and CMS category banners; results feed Redis/cache
+ * and PDP/PLP responses. Missing BT fields degrade gracefully (retry without them).
+ */
 import { Injectable, Logger } from '@nestjs/common';
 import type { PackagingFixture, ProductFixture } from '../../mocks/catalog.fixtures';
 import { OdooMediaProxyService } from '../../modules/media/odoo-media-proxy.service';
@@ -135,6 +142,7 @@ export class OdooCatalogLoader {
 
   constructor(private readonly odoo: OdooClient, private readonly mediaProxy: OdooMediaProxyService) {}
 
+  /** Fetch categories + saleable templates and assemble a full `OdooCatalogSnapshot`. */
   async load(): Promise<OdooCatalogSnapshot> {
     const categories = await this.loadCategories();
 
@@ -145,6 +153,7 @@ export class OdooCatalogLoader {
 
     const { categoriesBySlug, categoryTree } = buildCategoryViews(categories);
 
+    // Saleable templates with storefront slugs; retry without newer taxonomy fields if Odoo is older.
     const templateFields = [
       'name',
       'default_code',
@@ -210,6 +219,7 @@ export class OdooCatalogLoader {
     const asset = (path: string, query?: Record<string, string>) =>
       this.mediaProxy.proxyUrl(path, query);
 
+    // Parallel child-line + variant + Public SAR pricelist reads scoped to loaded templates.
     const [
       variants,
       benefits,
@@ -269,6 +279,7 @@ export class OdooCatalogLoader {
     const productsBySlug: Record<string, ProductFixture> = {};
     const slugByTmplId = new Map<number, string>();
 
+    // Map each Odoo template into the storefront ProductFixture (packaging, gallery, docs).
     for (const t of templates) {
       const slug = (t.bt_storefront_slug || '').trim();
       if (!slug) {
@@ -363,6 +374,7 @@ export class OdooCatalogLoader {
       };
     }
 
+    // Related products: prefer curated Odoo links, else same-category fallback (max 4).
     for (const t of templates) {
       const slug = slugByTmplId.get(t.id);
       if (!slug || !productsBySlug[slug]) {
@@ -387,6 +399,7 @@ export class OdooCatalogLoader {
         .map((o) => o.slug);
     }
 
+    // Homepage featured strip: prefer tiger-x line, then name, take top 3.
     const featuredSlugs = Object.values(productsBySlug)
       .sort((a, b) => {
         const lineScore = (p: ProductFixture) => (p.slug.includes('tiger-x') ? 0 : 1);
@@ -402,6 +415,7 @@ export class OdooCatalogLoader {
     return { productsBySlug, categoryTree, categoriesBySlug, featuredSlugs };
   }
 
+  /** Load packaging variants; omit `bt_storefront_sale` if the field is not installed. */
   private async loadVariants(tmplIds: number[]): Promise<OdooVariant[]> {
     if (!tmplIds.length) {
       return [];
@@ -425,6 +439,7 @@ export class OdooCatalogLoader {
         },
       );
     } catch {
+      // Fall back without bt_storefront_sale when the custom field is missing.
       return await this.odoo.executeKw<OdooVariant[]>(
         'product.product',
         'search_read',
@@ -437,6 +452,7 @@ export class OdooCatalogLoader {
     }
   }
 
+  /** Soft-fail child model reads (benefits, specs, gallery, …) so catalog still loads. */
   private async loadChildLines<T extends { product_tmpl_id: [number, string] }>(
     model: string,
     tmplIds: number[],
@@ -461,6 +477,7 @@ export class OdooCatalogLoader {
     }
   }
 
+  /** Partial/full pallet tiers from the named “Public SAR” pricelist. */
   private async loadPublicPricelistItems(tmplIds: number[]): Promise<OdooPricelistItem[]> {
     if (!tmplIds.length) {
       return [];
@@ -507,6 +524,7 @@ export class OdooCatalogLoader {
     }
   }
 
+  /** Categories with PLP banner fields; synthesize slugs if BT fields are absent. */
   private async loadCategories(): Promise<OdooCategory[]> {
     const fullFields = [
       'name',
@@ -532,6 +550,7 @@ export class OdooCatalogLoader {
       if (!msg.includes('Invalid field') && !msg.includes('does not exist')) {
         throw err;
       }
+      // Upgrade path: older Odoo without black_tiger_base PLP fields.
       this.logger.warn(
         'Black Tiger category fields missing on Odoo — upgrade black_tiger_base. Using name/parent_id only.',
       );
@@ -646,6 +665,7 @@ function buildBanner(
   return banner;
 }
 
+// Walk parent_id until a category with a storefront slug is found.
 function resolveProductCategory(
   categRef: [number, string] | false,
   categoriesById: Map<number, OdooCategory>,
@@ -736,6 +756,7 @@ function packagingLabel(displayName: string, productName: string): string {
   return displayName.replace(productName, '').trim() || displayName;
 }
 
+// Prefer lowest partial-pallet tier unit price, then price_extra / list / template base.
 function variantListUnitPrice(
   v: OdooVariant,
   tmpl: OdooTemplate,
@@ -766,6 +787,7 @@ function variantListUnitPrice(
   return tmplBase;
 }
 
+// Multi-variant → one packaging option per product.product; else a single “Standard” option.
 function buildPackagingOptions(
   tmpl: OdooTemplate,
   variants: OdooVariant[],
@@ -779,6 +801,7 @@ function buildPackagingOptions(
 
   if (variants.length > 1) {
     return variants.map((v, idx) => {
+      // Prefer variant-scoped pricelist rows; fall back to template-level tiers.
       const variantItems = pricelistItems.filter(
         (item) => Array.isArray(item.product_id) && item.product_id[0] === v.id,
       );

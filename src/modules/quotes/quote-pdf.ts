@@ -1,6 +1,7 @@
 /**
- * Minimal single-page (or multi-page) text PDF for storefront quotes.
- * Avoids native PDF dependencies while producing a valid application/pdf.
+ * Minimal multi-page text PDF builder for storefront sales quotes.
+ * Avoids native PDF dependencies while producing a valid `application/pdf`
+ * (Courier layout with line items, shipping, and totals).
  */
 
 export type QuotePdfLine = {
@@ -220,6 +221,7 @@ export function buildQuotePdf(input: QuotePdfInput): Buffer {
   return Buffer.from(pdf, 'utf8');
 }
 
+/** Safe download filename for a quote PDF attachment. */
 export function quotePdfFileName(quoteId: string): string {
   const safe = String(quoteId || 'quote').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40);
   return `black-tiger-quote-${safe || 'quote'}.pdf`;

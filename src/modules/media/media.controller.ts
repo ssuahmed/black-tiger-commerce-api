@@ -1,3 +1,6 @@
+/**
+ * Public media HTTP API: proxy Odoo image/content binary responses for the storefront.
+ */
 import { Controller, Get, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { Public } from '../../common/decorators/public.decorator';

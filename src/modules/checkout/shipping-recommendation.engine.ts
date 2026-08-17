@@ -1,3 +1,10 @@
+/**
+ * Builds checkout shipping options and pallet-utilization recommendations.
+ *
+ * Combines cart logistics (pallet counts/weights from packaging tiers) with
+ * the vehicle fleet packer to produce a recommended `fleet-auto` option,
+ * efficiency score/hints, and related product suggestions.
+ */
 import { Injectable } from '@nestjs/common';
 import type { ProductFixture } from '../../mocks/catalog.fixtures';
 import { productToCard } from '../../mocks/catalog.fixtures';
@@ -27,6 +34,7 @@ export class ShippingRecommendationEngine {
     private readonly logistics: CartLogisticsService = new CartLogisticsService(),
   ) {}
 
+  /** Full shipping payload: enriched fleet options + recommendation block. */
   build(
     _baseOptions: StorefrontShippingOption[],
     lines: CartLineForShipping[],
@@ -37,6 +45,7 @@ export class ShippingRecommendationEngine {
     return { options, recommendation };
   }
 
+  /** Utilization score, hints, pallet breakdown, and fleet plan for the cart. */
   buildRecommendation(
     lines: CartLineForShipping[],
     productsBySlug: Record<string, ProductFixture>,
@@ -114,6 +123,7 @@ export class ShippingRecommendationEngine {
     };
   }
 
+  /** Per-vehicle rows plus the recommended fleet-total option. */
   private buildFleetOptions(
     recommendation: ShippingRecommendation,
   ): EnrichedShippingOption[] {

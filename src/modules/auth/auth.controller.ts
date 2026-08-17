@@ -1,3 +1,9 @@
+/**
+ * Auth HTTP surface for the storefront: identifier challenge, register/login,
+ * OTP send/verify, password forgot/reset, refresh, and logout.
+ *
+ * Most routes are `@Public()`; logout requires a valid access token.
+ */
 import {
   Body,
   Controller,

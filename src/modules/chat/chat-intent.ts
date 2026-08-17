@@ -1,3 +1,10 @@
+/**
+ * Intent inference and catalog retrieval helpers for Ask AI.
+ *
+ * Storefront → API → catalog: maps free-text (vehicles, viscosity, fuel) onto
+ * segment/application tags so both the rules engine and LLM prompt receive a
+ * focused product slice. Vehicles are use-cases, not SKUs.
+ */
 import type { ProductFixture } from '../../mocks/catalog.fixtures';
 
 export type ChatFuelHint = 'petrol' | 'diesel' | 'unknown';
@@ -145,6 +152,7 @@ export function inferChatIntent(message: string): ChatIntent {
   };
 }
 
+/** Hard filters: viscosity needles, segment slugs, and application tags must all pass when set. */
 export function productMatchesIntent(
   product: ProductFixture,
   intent: ChatIntent,
@@ -180,6 +188,7 @@ export function productMatchesIntent(
   return true;
 }
 
+/** Soft ranking for LLM context selection (token hits + intent boosts). */
 export function scoreProductForChat(
   product: ProductFixture,
   message: string,
@@ -236,6 +245,7 @@ export function scoreProductForChat(
   return score;
 }
 
+/** Build a capped catalog slice for the LLM prompt, preferring intent matches. */
 export function selectProductsForChat(
   message: string,
   products: ProductFixture[],
@@ -255,6 +265,7 @@ export function selectProductsForChat(
     if (top.length >= Math.min(6, max) || products.length <= max) {
       return { intent, slice: products.length <= max ? preferIntentOrder(products, intentMatches) : top };
     }
+    // Pad with non-matches so the model still sees breadth when few products match.
     const rest = scored.filter((s) => !s.matches).map((s) => s.p);
     return { intent, slice: [...top, ...rest].slice(0, max) };
   }
@@ -279,6 +290,7 @@ function preferIntentOrder(
   return [...intentMatches, ...all.filter((p) => !first.has(p.slug))];
 }
 
+/** Compact natural-language hint injected into the LLM system prompt. */
 export function formatIntentHint(intent: ChatIntent): string {
   const bits: string[] = [];
   if (intent.language === 'ar') {

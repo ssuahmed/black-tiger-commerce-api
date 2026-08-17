@@ -1,3 +1,10 @@
+/**
+ * Passport JWT access-token strategy (`jwt`).
+ *
+ * Validates Bearer tokens with JWT_ACCESS_SECRET, then hydrates an ephemeral
+ * session user from the payload (and Odoo when live) so account routes work
+ * after API restarts.
+ */
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
@@ -18,6 +25,7 @@ export class JwtAccessStrategy extends PassportStrategy(Strategy, 'jwt') {
     });
   }
 
+  /** Attach validated payload to `req.user` after session hydrate. */
   async validate(payload: JwtPayload): Promise<JwtPayload> {
     await this.auth.ensureSessionUser(payload);
     return payload;

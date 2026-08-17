@@ -1,3 +1,9 @@
+/**
+ * Shared Ask AI response/session types for the storefront chat API.
+ *
+ * Storefront → API: shapes returned by ChatService / ChatController (product cards,
+ * conversation turns, usage). Catalog cards may reflect Odoo-sourced products.
+ */
 export interface ChatProductCard {
   slug: string;
   name: string;

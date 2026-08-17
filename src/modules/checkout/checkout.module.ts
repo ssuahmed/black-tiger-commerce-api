@@ -1,3 +1,7 @@
+/**
+ * Checkout Nest module: cart + catalog + payment + Odoo order/shipping/customer
+ * services and Google geocoding for address resolve.
+ */
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { PersistenceModule } from '../../persistence/persistence.module';

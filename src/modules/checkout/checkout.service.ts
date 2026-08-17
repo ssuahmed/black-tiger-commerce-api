@@ -1,3 +1,12 @@
+/**
+ * Checkout orchestration for the storefront cart → order flow.
+ *
+ * Persists a per-cart draft (address, shipping, payment intent), syncs an
+ * Odoo draft quotation as soon as address is set and refreshes it when
+ * shipping/payment change, then confirms a sale order on submit. Card /
+ * Apple Pay go through {@link PaymentService} (PayTabs or sandbox); B2B
+ * company registration uses {@link OdooCustomerService}.
+ */
 import {
   BadRequestException,
   Injectable,
@@ -36,6 +45,7 @@ import type {
 import { ShippingRecommendationEngine } from './shipping-recommendation.engine';
 import type { ShippingOptionsPayload } from './shipping-recommendation.types';
 
+/** Shipping/billing address as stored on the checkout draft after resolution. */
 export interface ResolvedAddr {
   addressId?: string | null;
   label?: string;
@@ -65,6 +75,7 @@ export interface ResolvedAddr {
   companyFloor?: string;
 }
 
+/** Delivery / billing / notification contact on the checkout draft. */
 export interface ResolvedCt {
   contactId?: string | null;
   fullName?: string;
@@ -87,20 +98,27 @@ export class CheckoutService {
     private readonly catalogProducts: CatalogProductsProvider,
   ) {}
 
+  /** Bind an anonymous cart to the authenticated user (or verify ownership). */
   ensureOwnership(cartId: string, userId: string) {
     return this.cartService.attachUserIfAnonymous(cartId, userId);
   }
 
+  /** Pickup warehouse list for address-kind = pickup. */
   listWarehouses() {
     return { items: WAREHOUSES };
   }
 
+  /** Single warehouse by slug. */
   getWarehouse(slug: string) {
     const warehouse = WAREHOUSES_BY_SLUG[slug];
     if (!warehouse) throw new NotFoundException('Warehouse not found');
     return warehouse;
   }
 
+  /**
+   * Persist shipping/billing/contacts on the draft, optionally sync B2B company
+   * to Odoo, then create/refresh the draft Odoo quotation.
+   */
   async putAddress(cartId: string, userId: string, dto: CheckoutAddressDto) {
     this.ensureOwnership(cartId, userId);
     const savedIds: Record<string, string | undefined> = {};
@@ -221,6 +239,10 @@ export class CheckoutService {
     );
   }
 
+  /**
+   * Register/update the B2B company partner in Odoo (CR/VAT required) and
+   * mark the local user as pending B2B approval.
+   */
   private async syncBusinessCompanyToOdoo(
     userId: string,
     dto: CheckoutAddressDto,
@@ -315,6 +337,7 @@ export class CheckoutService {
     }
   }
 
+  /** Checkout summary: completeness flags, shipping pick, logistics, totals. */
   async getSummary(cartId: string, userId: string) {
     this.ensureOwnership(cartId, userId);
     const draft = this.persistence.checkoutDrafts.get(cartId);
@@ -381,6 +404,10 @@ export class CheckoutService {
     };
   }
 
+  /**
+   * Fleet shipping options + utilization recommendation for the cart lines
+   * (catalog packaging tiers + vehicle packing engine).
+   */
   async shippingOptions(
     cartId: string,
     userId: string,
@@ -407,6 +434,10 @@ export class CheckoutService {
     );
   }
 
+  /**
+   * Select a shipping option (fleet-auto preferred when a vehicle row is picked)
+   * and refresh the Odoo draft quotation with freight.
+   */
   async putShipping(cartId: string, userId: string, dto: CheckoutShippingDto) {
     this.ensureOwnership(cartId, userId);
     const payload = await this.shippingOptions(cartId, userId);
@@ -463,6 +494,10 @@ export class CheckoutService {
     };
   }
 
+  /**
+   * Create a payment intent after address + shipping are complete.
+   * Refreshes the Odoo quote with the chosen method, then delegates to PayTabs/sandbox.
+   */
   async paymentIntent(
     cartId: string,
     userId: string,
@@ -540,6 +575,7 @@ export class CheckoutService {
     return intent;
   }
 
+  /** Current payment-intent status for the cart draft (live gateway + draft). */
   getPaymentIntent(cartId: string, userId: string) {
     this.ensureOwnership(cartId, userId);
     const draft = this.persistence.checkoutDrafts.get(cartId);
@@ -575,6 +611,7 @@ export class CheckoutService {
     };
   }
 
+  /** Confirm a sandbox/card intent (PayTabs usually confirms via webhook). */
   async confirmPaymentIntent(
     cartId: string,
     userId: string,
@@ -602,6 +639,10 @@ export class CheckoutService {
     return { paymentIntentId, status: result.status };
   }
 
+  /**
+   * Final checkout submit: require paid card/Apple Pay when applicable,
+   * confirm Odoo sale order (or local draft when offline), clear the cart.
+   */
   async submit(cartId: string, userId: string, dto: CheckoutSubmitDto) {
     this.ensureOwnership(cartId, userId);
     const draft = this.persistence.checkoutDrafts.get(cartId);
@@ -853,6 +894,7 @@ export class CheckoutService {
       .join('\n');
   }
 
+  /** Resolve cart lines, shipping amount, and totals for quote/order sync. */
   private async prepareCheckoutOrder(
     cartId: string,
     userId: string,
@@ -972,6 +1014,7 @@ export class CheckoutService {
     }
   }
 
+  /** Map draft → Odoo storefront payload and upsert the sale order / quotation. */
   private async syncOdooStorefrontOrder(input: {
     cartId: string;
     userId: string;
@@ -1029,6 +1072,7 @@ export class CheckoutService {
     }
   }
 
+  /** Resolve shipping from address book id or inline payload (optional save). */
   private resolveShippingBlock(
     userId: string,
     dto: CheckoutAddressDto,
@@ -1073,6 +1117,7 @@ export class CheckoutService {
     );
   }
 
+  /** Resolve billing address (or copy of shipping when same-as-shipping). */
   private resolveBillingBlock(
     userId: string,
     dto: CheckoutAddressDto,
@@ -1199,6 +1244,7 @@ export class CheckoutService {
     };
   }
 
+  /** Resolve delivery / billing / notification contacts from book or inline. */
   private resolveContactsBlock(
     userId: string,
     dto: CheckoutAddressDto,

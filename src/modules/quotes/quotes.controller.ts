@@ -1,3 +1,6 @@
+/**
+ * Authenticated quotes HTTP API: create from cart, fetch snapshot, download PDF.
+ */
 import {
   Controller,
   Get,

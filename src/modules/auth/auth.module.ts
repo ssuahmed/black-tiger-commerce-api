@@ -1,3 +1,7 @@
+/**
+ * Auth Nest module: JWT/Passport, Odoo customer auth, mail + WhatsApp OTP,
+ * and exports for other domains that need guards or AuthService.
+ */
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';

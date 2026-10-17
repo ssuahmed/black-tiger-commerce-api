@@ -1,3 +1,11 @@
+/**
+ * LLM-backed Ask AI recommender with automatic rules fallback.
+ *
+ * Storefront → API → OpenAI-compatible LLM (optional): when `CHAT_PROVIDER=llm`,
+ * retrieves a catalog slice via intent scoring, prompts the model for JSON
+ * `{reply, slugs}`, then maps slugs to product cards. On any failure (or when
+ * provider is `rules`), delegates to ChatRulesProvider — catalog may be Odoo-backed.
+ */
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
@@ -54,10 +62,12 @@ export class ChatLlmProvider {
     private readonly rules: ChatRulesProvider,
   ) {}
 
+  /** True when `CHAT_PROVIDER=llm` (otherwise rules-only). */
   enabled(): boolean {
     return (this.config.get<string>('CHAT_PROVIDER') ?? 'rules').toLowerCase() === 'llm';
   }
 
+  /** Produce a shopper reply + product cards; fall back to rules on LLM failure. */
   async recommend(
     message: string,
     products: ProductFixture[],
@@ -70,11 +80,13 @@ export class ChatLlmProvider {
     }
 
     try {
+      // Intent-ranked catalog slice keeps the prompt small and on-policy.
       const { intent, slice: catalog } = selectProductsForChat(message, products, 30);
       const llm = await this.callLlm(message, catalog, history, intent);
       if (!llm) {
         throw new Error('Empty LLM response');
       }
+      // Only emit cards for slugs that exist in the full catalog (never invent SKUs).
       const bySlug = new Map(products.map((p) => [p.slug, p]));
       const allowedSlugs = new Set(products.map((p) => p.slug));
       const cards = (llm.slugs ?? [])
@@ -125,6 +137,7 @@ export class ChatLlmProvider {
     return `- ${parts.join(' | ')}`;
   }
 
+  // Ollama often lacks response_format=json_object; disable unless explicitly forced.
   private useJsonResponseFormat(): boolean {
     const raw = (this.config.get<string>('CHAT_LLM_JSON_MODE') ?? '').trim().toLowerCase();
     if (raw === '0' || raw === 'false' || raw === 'off') return false;
@@ -134,6 +147,7 @@ export class ChatLlmProvider {
     return true;
   }
 
+  // OpenAI-compatible /chat/completions with catalog + intent hints in system messages.
   private async callLlm(
     message: string,
     catalog: ProductFixture[],
@@ -212,6 +226,7 @@ export class ChatLlmProvider {
     return this.parseLlmJson(content);
   }
 
+  // Tolerate fenced / loose JSON common from local models; never throw to the shopper.
   private parseLlmJson(content: string): { reply: string; slugs: string[] } {
     const trimmed = content.trim();
     const candidates = [trimmed];

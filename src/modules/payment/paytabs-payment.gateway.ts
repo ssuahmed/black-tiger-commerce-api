@@ -1,3 +1,10 @@
+/**
+ * PayTabs hosted payment-page gateway for card and Apple Pay.
+ *
+ * Creates a PayTabs payment request, stores intent + `tran_ref` mapping,
+ * confirms via `/payment/query`, and applies signed server callbacks to the
+ * checkout draft. Requires PAYTABS_PROFILE_ID / SERVER_KEY and return/callback URLs.
+ */
 import {
   BadRequestException,
   Injectable,
@@ -69,6 +76,9 @@ export class PayTabsPaymentGateway implements PaymentGatewayAdapter {
     );
   }
 
+  /**
+   * Request a PayTabs hosted page; persist redirect URL + tran_ref for the cart.
+   */
   async createIntent(
     cartId: string,
     userId: string,
@@ -164,6 +174,7 @@ export class PayTabsPaymentGateway implements PaymentGatewayAdapter {
     };
   }
 
+  /** Poll PayTabs `/payment/query` and sync intent + checkout draft status. */
   async confirmIntent(paymentIntentId: string) {
     const row = this.persistence.paymentIntentsById.get(paymentIntentId);
     if (!row) {
@@ -204,10 +215,15 @@ export class PayTabsPaymentGateway implements PaymentGatewayAdapter {
     }
   }
 
+  /** Stored intent status without hitting PayTabs. */
   getIntentStatus(paymentIntentId: string): PaymentIntentStatus | undefined {
     return this.persistence.paymentIntentsById.get(paymentIntentId)?.status;
   }
 
+  /**
+   * Verify HMAC signature, map `tran_ref` → intent, mark succeeded/failed,
+   * and mirror status onto the checkout draft.
+   */
   handleCallback(rawBody: Buffer, signatureHeader: string | undefined) {
     if (!verifyPayTabsSignature(rawBody, signatureHeader, this.serverKey())) {
       throw new UnauthorizedException('Invalid PayTabs signature');

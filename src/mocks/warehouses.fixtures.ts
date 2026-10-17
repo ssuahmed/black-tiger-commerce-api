@@ -16,11 +16,12 @@ export const WAREHOUSES: WarehouseFixture[] = [
     name: 'BT Warehouse #01',
     city: 'Riyadh',
     countryCode: 'SA',
-    address: 'Industrial Area, Riyadh, Saudi Arabia',
-    latitude: 24.5854,
-    longitude: 46.756,
-    phone: '+966 11 000 0001',
-    openingHours: 'Sunday–Thursday, 08:00–17:00',
+    address:
+      '3463 Old Al-Kharj Road, Hyt Unit, Riyadh, 14371 - 6749 Kingdom of Saudi Arabia',
+    latitude: 24.6382,
+    longitude: 46.7725,
+    phone: '+966-55-5496568',
+    openingHours: 'Monday–Thursday & Saturday–Sunday, 08:00 AM–4:00 PM; Friday closed',
   },
 ];
 

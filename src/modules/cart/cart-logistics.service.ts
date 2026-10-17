@@ -1,3 +1,8 @@
+/**
+ * Cart logistics calculator: pallet equivalents, drum vs box pallets, and
+ * net weight from packaging `boxPerPallet` / weight fields (Odoo tiers when live).
+ * Used by cart presentation and the checkout shipping recommendation engine.
+ */
 import { Injectable } from '@nestjs/common';
 import type {
   CartLineLogistics,
@@ -11,6 +16,7 @@ const DEFAULT_WEIGHT_KG_PER_BOX = 12;
 
 @Injectable()
 export class CartLogisticsService {
+  /** Aggregate pallet/weight metrics across all cart lines. */
   calculate(
     lines: CartLogisticsInputLine[],
     productsBySlug: ProductsBySlug,

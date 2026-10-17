@@ -1,3 +1,8 @@
+/**
+ * Maps an internal catalog product fixture into the storefront PDP JSON shape:
+ * breadcrumbs, gallery media, packaging options, normalized pricing tiers,
+ * documents, and related product cards.
+ */
 import { productToCard, type ProductFixture } from '../../mocks/catalog.fixtures';
 
 export type PdpBreadcrumb = { label: string; href?: string };
@@ -25,6 +30,7 @@ export type ProductDetailResponse = {
   quantityStep: number;
 };
 
+/** Assemble the full PDP response from a product and the catalog slug index. */
 export function buildProductDetailResponse(
   product: ProductFixture,
   productsBySlug: Record<string, ProductFixture>,
@@ -67,6 +73,7 @@ export function buildProductDetailResponse(
   };
 }
 
+/** Home → Products → category → product name breadcrumbs. */
 export function buildProductBreadcrumbs(product: ProductFixture): PdpBreadcrumb[] {
   return [
     { label: 'HOME', href: '/' },
@@ -79,6 +86,7 @@ export function buildProductBreadcrumbs(product: ProductFixture): PdpBreadcrumb[
   ];
 }
 
+/** Prefer gallery images; fall back to the primary product image. */
 export function buildProductMedia(product: ProductFixture): PdpMediaItem[] {
   if (product.gallery?.length) {
     return product.gallery.map((item) => ({
@@ -89,6 +97,10 @@ export function buildProductMedia(product: ProductFixture): PdpMediaItem[] {
   return [{ url: product.imageUrl, alt: product.name }];
 }
 
+/**
+ * Normalize Odoo/fixture pricing blobs into the PDP pricing contract
+ * (partial/full pallet tiers, line summary, formatted amounts).
+ */
 export function normalizePdpPricing(
   raw: Record<string, unknown>,
   unitPrice: number,
@@ -145,6 +157,7 @@ export function normalizePdpPricing(
   };
 }
 
+/** Parse an Odoo JSON text field into an array, or undefined on failure. */
 export function parseJsonArray<T>(raw: string | false | null | undefined): T[] | undefined {
   if (!raw) {
     return undefined;
@@ -157,6 +170,7 @@ export function parseJsonArray<T>(raw: string | false | null | undefined): T[] |
   }
 }
 
+/** Parse an Odoo JSON text field into an object, or undefined on failure. */
 export function parseJsonObject<T extends Record<string, unknown>>(
   raw: string | false | null | undefined,
 ): Partial<T> | undefined {

@@ -1,3 +1,10 @@
+/**
+ * Low-level Odoo JSON-RPC client used by the Commerce API to talk to ERP.
+ *
+ * Storefront → API → Odoo: domain services call `executeKw` / website helpers here;
+ * this layer authenticates once, runs `execute_kw`, and rewrites media URLs for the CDN proxy.
+ * Active only when `ODOO_MODE=live`; callers decide fixture fallbacks.
+ */
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { OdooMediaProxyService } from '../../modules/media/odoo-media-proxy.service';
@@ -17,6 +24,7 @@ export class OdooClient {
     private readonly mediaProxy: OdooMediaProxyService,
   ) {}
 
+  /** True when the API should hit a live Odoo instance (`ODOO_MODE=live`). */
   isConfigured(): boolean {
     return this.config.get<string>('ODOO_MODE') === 'live';
   }
@@ -37,6 +45,7 @@ export class OdooClient {
     return this.config.get<string>('ODOO_PASSWORD') || 'commerce_api_dev_change_me';
   }
 
+  // POST JSON-RPC with timeout; surface Odoo error payloads as thrown Errors.
   private async jsonRpc<T>(endpoint: string, params: Record<string, unknown>): Promise<T> {
     const timeoutMs = Number(this.config.get<string>('ODOO_RPC_TIMEOUT_MS') || 30_000);
     const res = await fetch(`${this.baseUrl}${endpoint}`, {
@@ -60,6 +69,7 @@ export class OdooClient {
     return body.result as T;
   }
 
+  // Cache uid for the process lifetime after first successful authenticate.
   private async authenticate(): Promise<number> {
     if (this.uid) {
       return this.uid;
@@ -76,12 +86,14 @@ export class OdooClient {
     return uid;
   }
 
+  /** Authenticate then call Odoo `object.execute_kw` for the given model/method. */
   async executeKw<T>(
     model: string,
     method: string,
     args: unknown[] = [],
     kwargs: Record<string, unknown> = {},
   ): Promise<T> {
+    // Authenticate then execute_kw
     const uid = await this.authenticate();
     return this.jsonRpc<T>('/jsonrpc', {
       service: 'object',
@@ -90,6 +102,7 @@ export class OdooClient {
     });
   }
 
+  /** Load published CMS blocks for a storefront page slug and normalize media URLs. */
   async getWebsitePageBlocks(slug: string): Promise<Record<string, unknown>> {
     const map = await this.executeKw<Record<string, OdooBlockPayload>>(
       'bt.website.page',
@@ -102,6 +115,7 @@ export class OdooClient {
     return this.normalizeWebsiteBlocks(map);
   }
 
+  // Map Odoo block payloads to storefront shape; rewrite image URLs via media proxy.
   private normalizeWebsiteBlocks(
     map: Record<string, OdooBlockPayload>,
   ): Record<string, unknown> {
@@ -137,6 +151,7 @@ export class OdooClient {
     }
   }
 
+  // Walk nested JSON and rewrite any string that looks like an Odoo media URL.
   private rewriteJsonMediaUrls(value: unknown): unknown {
     if (typeof value === 'string') {
       return this.mediaProxy.rewritePublicUrl(value) ?? value;

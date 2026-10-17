@@ -1,3 +1,6 @@
+/**
+ * Content Nest module: Odoo CMS pages with Redis cache and media rewrite support.
+ */
 import { Module } from '@nestjs/common';
 import { OdooClient } from '../../infrastructure/odoo/odoo.client';
 import { WebhooksModule } from '../webhooks/webhooks.module';

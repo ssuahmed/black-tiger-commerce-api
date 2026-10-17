@@ -1,3 +1,10 @@
+/**
+ * Nest bootstrap for Black Tiger Commerce API.
+ *
+ * Storefront → API → Odoo: starts the HTTP server with CORS for the storefront,
+ * a global `v1` prefix (health/docs/webhooks excluded), Swagger at `/docs`, and
+ * raw-body JSON parsers on Odoo/PayTabs webhook paths for HMAC verification.
+ */
 import { RequestMethod } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -8,8 +15,10 @@ import { AppModule } from './app.module';
 type RequestWithRawBody = IncomingMessage & { rawBody?: Buffer };
 
 async function bootstrap() {
+  // Disable default body parser so webhook routes can capture rawBody for HMAC.
   const app = await NestFactory.create(AppModule, { bodyParser: false });
 
+  // Preserve raw bytes for signature verification before the global JSON parser.
   app.use(
     '/internal/webhooks/odoo',
     json({
@@ -38,6 +47,7 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
   });
 
+  // Storefront API under /v1; webhooks/health/docs stay unprefixed for ops + Odoo.
   app.setGlobalPrefix('v1', {
     exclude: [
       { path: 'health', method: RequestMethod.GET },

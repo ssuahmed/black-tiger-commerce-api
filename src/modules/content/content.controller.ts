@@ -1,3 +1,6 @@
+/**
+ * Public CMS content HTTP API for storefront pages.
+ */
 import { Controller, Get, Param } from '@nestjs/common';
 import { Public } from '../../common/decorators/public.decorator';
 import { ContentService } from './content.service';

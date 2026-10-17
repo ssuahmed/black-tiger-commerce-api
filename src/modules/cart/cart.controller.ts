@@ -1,3 +1,7 @@
+/**
+ * Cart HTTP API (optional JWT): guest or signed-in carts, line CRUD,
+ * promo apply/remove, and idempotent add-item.
+ */
 import {
   Body,
   Controller,

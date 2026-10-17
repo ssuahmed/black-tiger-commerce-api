@@ -1,4 +1,9 @@
-/** Vehicle types used for storefront freight packing (capacity × mock unit cost). */
+/**
+ * Vehicle fleet catalog and pallet-packing algorithm for storefront freight.
+ *
+ * Capacities and mock SAR unit costs drive the “calculated vehicle fleet”
+ * shipping option shown at checkout (not live Odoo carrier rates).
+ */
 
 export interface VehicleType {
   id: string;
@@ -93,6 +98,7 @@ function formatSar(amount: number): string {
   return `${amount.toLocaleString('en-SA')} SAR`;
 }
 
+/** Flatten the vehicle catalog into storefront shipping option rows. */
 export function vehicleCatalogAsStorefrontOptions(): Array<{
   id: string;
   label: string;
@@ -181,6 +187,7 @@ export function packVehiclesForPallets(totalPallets: number): FleetPlan {
   };
 }
 
+/** Format a fleet amount as `N SAR` for storefront display. */
 export function formatFleetSar(amount: number): string {
   return formatSar(amount);
 }

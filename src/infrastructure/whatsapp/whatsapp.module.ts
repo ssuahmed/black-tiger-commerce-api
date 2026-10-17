@@ -1,3 +1,6 @@
+/**
+ * WhatsApp Nest module: exports Cloud API OTP sender for the auth domain.
+ */
 import { Module } from '@nestjs/common';
 import { WhatsAppCloudService } from './whatsapp-cloud.service';
 

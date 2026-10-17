@@ -1,3 +1,7 @@
+/**
+ * Cart Nest module: persistence-backed carts, catalog pricing, logistics,
+ * and promotions. Exported for checkout/quotes.
+ */
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { PersistenceModule } from '../../persistence/persistence.module';

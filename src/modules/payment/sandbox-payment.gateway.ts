@@ -1,3 +1,10 @@
+/**
+ * Local/dev payment gateway: no external network.
+ *
+ * Card/Apple Pay intents start as `requires_confirmation` and succeed on
+ * confirm; COD/wire intents succeed immediately. Used when PayTabs is off
+ * and for non-card methods even when PayTabs is the active card gateway.
+ */
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { newId } from '../../common/utils/uuid';
 import { PersistenceService } from '../../persistence/persistence.service';
@@ -12,6 +19,7 @@ import type {
 export class SandboxPaymentGateway implements PaymentGatewayAdapter {
   constructor(private readonly persistence: PersistenceService) {}
 
+  /** Create an in-memory intent (no redirect / tran_ref). */
   async createIntent(
     cartId: string,
     userId: string,
@@ -55,6 +63,7 @@ export class SandboxPaymentGateway implements PaymentGatewayAdapter {
     };
   }
 
+  /** Mark sandbox intent succeeded (storefront confirm button / e2e). */
   async confirmIntent(paymentIntentId: string) {
     const row = this.persistence.paymentIntentsById.get(paymentIntentId);
     if (!row) {
@@ -65,6 +74,7 @@ export class SandboxPaymentGateway implements PaymentGatewayAdapter {
     return { status: 'succeeded' as const };
   }
 
+  /** Current sandbox intent status. */
   getIntentStatus(paymentIntentId: string): PaymentIntentStatus | undefined {
     return this.persistence.paymentIntentsById.get(paymentIntentId)?.status;
   }

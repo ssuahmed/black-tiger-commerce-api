@@ -1,3 +1,10 @@
+/**
+ * Catalog taxonomy helpers for PLP facets: viscosity, segment, application,
+ * product line, and the composite segment:application facet.
+ *
+ * Pure functions over product fixtures — no I/O. Used by listing filters and
+ * facet builders so storefront filter keys stay consistent with Odoo tags.
+ */
 import type { ProductFixture } from '../../mocks/catalog.fixtures';
 
 const PRODUCT_LINE_LABELS: Record<string, string> = {
@@ -20,10 +27,12 @@ export function normalizeViscosityKey(raw: string | undefined | null): string | 
   return compact || undefined;
 }
 
+/** Infer SAE viscosity key from a product slug when the field is empty. */
 export function inferViscosityFromSlug(slug: string): string | undefined {
   return normalizeViscosityKey(slug);
 }
 
+/** Resolved viscosity facet key for a product (`other` as last resort). */
 export function productViscosity(p: ProductFixture): string {
   return (
     normalizeViscosityKey(p.viscosity) ??
@@ -32,6 +41,7 @@ export function productViscosity(p: ProductFixture): string {
   );
 }
 
+/** Product-line facet key from explicit field or slug heuristics. */
 export function productLineKey(p: ProductFixture): string | undefined {
   if (p.productLine) return String(p.productLine).trim();
   if (p.slug.includes('tiger-x')) return 'tiger_x';
@@ -40,6 +50,7 @@ export function productLineKey(p: ProductFixture): string | undefined {
   return undefined;
 }
 
+/** Human label for a product-line facet key. */
 export function productLineLabel(key: string): string {
   return PRODUCT_LINE_LABELS[key] ?? key
     .split(/[_-]/)
@@ -48,6 +59,7 @@ export function productLineLabel(key: string): string {
     .join(' ');
 }
 
+/** Segment facet keys from tags or category slug fallback. */
 export function productSegmentKeys(p: ProductFixture): string[] {
   if (p.segmentTags?.length) {
     return p.segmentTags;
@@ -58,10 +70,12 @@ export function productSegmentKeys(p: ProductFixture): string[] {
   return ['passenger-cars'];
 }
 
+/** Application facet keys (e.g. petrol-engine) from product tags. */
 export function productApplicationKeys(p: ProductFixture): string[] {
   return Array.isArray(p.applicationTags) ? p.applicationTags.filter(Boolean) : [];
 }
 
+/** Title-case a kebab-case facet value for display. */
 export function humanizeFacetValue(value: string): string {
   return value
     .split('-')
@@ -72,6 +86,7 @@ export function humanizeFacetValue(value: string): string {
 /** Composite facet value linking one segment to one application. */
 export const SEGMENT_APPLICATION_SEPARATOR = ':';
 
+/** Encode segment + application into one facet value. */
 export function segmentApplicationValue(
   segment: string,
   application: string,
@@ -79,6 +94,7 @@ export function segmentApplicationValue(
   return `${segment}${SEGMENT_APPLICATION_SEPARATOR}${application}`;
 }
 
+/** Decode a composite segment:application facet value. */
 export function parseSegmentApplication(
   raw: string,
 ): { segment: string; application: string } | null {
@@ -110,6 +126,7 @@ export function matchesSegmentApplicationPairs(
   });
 }
 
+/** Whether a product matches an active facet key/values selection. */
 export function matchesTaxonomyFacet(
   p: ProductFixture,
   key: string,
@@ -148,6 +165,7 @@ export type CatalogFacetOptions = {
   activeSegments?: string[];
 };
 
+/** True when the product belongs to at least one of the given segments. */
 export function productMatchesSegments(
   p: ProductFixture,
   segments: string[],
@@ -156,6 +174,10 @@ export function productMatchesSegments(
   return matchesTaxonomyFacet(p, 'segment', segments);
 }
 
+/**
+ * Build PLP facet groups (segment → applications, product line, viscosity)
+ * with counts. Product line / viscosity are scoped to `activeSegments` when set.
+ */
 export function buildCatalogFacets(
   items: ProductFixture[],
   options: CatalogFacetOptions = {},

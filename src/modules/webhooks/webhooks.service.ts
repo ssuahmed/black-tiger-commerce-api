@@ -1,3 +1,10 @@
+/**
+ * Maps Odoo webhook model events to targeted API cache invalidation.
+ *
+ * Storefront → API ← Odoo: product/category/pricelist changes bust catalog cache;
+ * website page/section changes bust content cache (by slug when provided); shipping
+ * models bust the shipping-options cache used at checkout.
+ */
 import { Injectable, Logger } from '@nestjs/common';
 import { CatalogCacheService } from '../../infrastructure/cache/catalog-cache.service';
 import { ContentCacheService } from '../../infrastructure/cache/content-cache.service';
@@ -20,10 +27,12 @@ export class WebhooksService {
     private readonly shipping: OdooShippingService,
   ) {}
 
+  /** Invalidate caches implied by the Odoo model that changed; return keys cleared. */
   async handleOdooEvent(payload: OdooWebhookPayload): Promise<{ invalidated: string[] }> {
     const model = payload.model || '';
     const invalidated: string[] = [];
 
+    // Redis cache invalidation by model — catalog snapshot
     if (
       model === 'product.template' ||
       model === 'product.product' ||
@@ -35,6 +44,7 @@ export class WebhooksService {
       invalidated.push('catalog');
     }
 
+    // CMS pages: prefer slug-scoped bust, else wipe all content keys
     if (model === 'bt.website.page' || model === 'bt.website.section') {
       const slug = typeof payload.slug === 'string' ? payload.slug : undefined;
       if (slug) {

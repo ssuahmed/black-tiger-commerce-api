@@ -1,3 +1,10 @@
+/**
+ * Meta WhatsApp Cloud API client for storefront OTP delivery.
+ *
+ * Used by auth when the identifier is a mobile number (default channel).
+ * When credentials are missing or disabled, logs only (and prints the code
+ * if `USE_MOCK_OTP` is on) so local/dev flows still work.
+ */
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
@@ -14,6 +21,7 @@ export class WhatsAppCloudService {
 
   constructor(private readonly config: ConfigService) {}
 
+  /** True when WhatsApp Cloud env vars are present and not explicitly disabled. */
   isConfigured(): boolean {
     if (this.config.get<string>('WHATSAPP_CLOUD_ENABLED') === 'false') {
       return false;

@@ -1,3 +1,8 @@
+/**
+ * Packaging / pallet pricing resolvers for PLP "From" prices and PDP price-quotes.
+ * Reads unit prices and pallet tier tables from product/packaging fixtures
+ * (sourced from Odoo when live).
+ */
 import type { PackagingFixture, ProductFixture } from '../../mocks/catalog.fixtures';
 
 function parseMoney(value: unknown): number {
@@ -19,6 +24,7 @@ type PalletRow = {
   totalBoxQty?: number;
 };
 
+/** Look up a packaging variant by id on a product. */
 export function findPackagingOption(
   product: ProductFixture,
   packagingOptionId: string,

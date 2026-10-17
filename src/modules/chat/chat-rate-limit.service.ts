@@ -1,3 +1,10 @@
+/**
+ * Daily + burst rate limits for Ask AI messages.
+ *
+ * Storefront → API: ChatService calls `consume` before each recommendation.
+ * Prefer Redis counters; fall back to in-memory buckets. Limits differ for
+ * authenticated users vs guest IPs (env-configurable).
+ */
 import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../../infrastructure/redis/redis.module';
@@ -41,6 +48,7 @@ export class ChatRateLimitService {
     return this.consumeMemory(identity, subject);
   }
 
+  // Atomic-ish Redis path: incr daily then burst; roll back on over-limit / Redis miss.
   private async consumeRedis(
     identity: ChatIdentityKind,
     subject: string,

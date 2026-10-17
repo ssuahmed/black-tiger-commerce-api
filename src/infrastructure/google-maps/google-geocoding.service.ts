@@ -1,3 +1,10 @@
+/**
+ * Google Maps Geocoding (+ Nearby Search) for checkout address resolve.
+ *
+ * Turns placeId / lat-lng / free-text into structured SA-friendly address
+ * fields for the storefront. Without `GOOGLE_MAPS_API_KEY`, returns a
+ * deterministic Riyadh stub so local checkout still works.
+ */
 import { BadGatewayException, Injectable } from '@nestjs/common';
 
 export interface ResolveAddressInput {
@@ -32,6 +39,10 @@ const PLACE_TYPES = [
 
 @Injectable()
 export class GoogleGeocodingService {
+  /**
+   * Resolve an address from placeId, coordinates, or query text.
+   * May enrich pin-based results with a nearby establishment name (≤80m).
+   */
   async resolve(input: ResolveAddressInput) {
     const apiKey = process.env.GOOGLE_MAPS_API_KEY?.trim();
     if (!apiKey) return this.stub(input);

@@ -1,3 +1,7 @@
+/**
+ * Public catalog HTTP API for the storefront: categories, products, search,
+ * featured, and optional-auth price quotes.
+ */
 import {
   Body,
   Controller,

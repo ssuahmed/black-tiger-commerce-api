@@ -1,3 +1,7 @@
+/**
+ * Catalog Nest module: wires Odoo catalog loader, Redis-backed provider,
+ * media rewrite, and public catalog routes.
+ */
 import { Module } from '@nestjs/common';
 import { OdooCatalogLoader } from '../../infrastructure/odoo/odoo-catalog.loader';
 import { OdooClient } from '../../infrastructure/odoo/odoo.client';

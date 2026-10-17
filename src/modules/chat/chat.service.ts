@@ -1,3 +1,11 @@
+/**
+ * Ask AI session orchestration for the storefront chat widget.
+ *
+ * Storefront → API → (catalog snapshot / optional LLM): creates sessions, enforces
+ * rate limits, loads the product catalog, delegates recommendation to ChatLlmProvider,
+ * and persists short conversation turns in Redis (memory fallback). Does not call Odoo
+ * directly — catalog data may already be Odoo-backed upstream.
+ */
 import { Injectable } from '@nestjs/common';
 import { newId } from '../../common/utils/uuid';
 import { RedisService } from '../../infrastructure/redis/redis.module';
@@ -31,12 +39,14 @@ export class ChatService {
     private readonly redis: RedisService,
   ) {}
 
+  /** Allocate a new empty chat session id. */
   async createSession() {
     const sessionId = newId();
     await this.saveSession(sessionId, { turns: [], updatedAt: Date.now() });
     return { sessionId };
   }
 
+  /** Rate-limit, recommend products for the message, and append the turn to the session. */
   async postMessage(input: {
     message: string;
     sessionId?: string;
@@ -44,6 +54,7 @@ export class ChatService {
     clientIp?: string;
   }): Promise<ChatMessageResult & { usage: ChatUsageSnapshot }> {
     this.pruneMemorySessions();
+    // Authenticated users share a user quota; guests are keyed by client IP.
     const { identity, subject } = this.resolveSubject(input.userId, input.clientIp);
     const usage = await this.rateLimit.consume(identity, subject);
 
@@ -87,6 +98,7 @@ export class ChatService {
     return { identity: 'guest', subject: ip };
   }
 
+  // Prefer Redis session; fall back to in-process map.
   private async loadSession(sessionId: string): Promise<SessionState | null> {
     if (this.redis.enabled) {
       const raw = await this.redis.get(`${SESSION_KEY_PREFIX}${sessionId}`);

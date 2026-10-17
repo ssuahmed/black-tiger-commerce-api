@@ -1,3 +1,10 @@
+/**
+ * Proxies Odoo `/web/image` and `/web/content` for the storefront.
+ *
+ * Catalog/CMS image URLs are rewritten to `/v1/media/odoo?path=…` so browsers
+ * never call Odoo directly (hosts that require `X-Odoo-Database` cannot be
+ * used from `<img>` tags). Fetches use ODOO_URL + optional DB header.
+ */
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
@@ -54,14 +61,14 @@ export class OdooMediaProxyService {
   }
 
   /**
-   * Rewrite absolute Odoo media URLs (and bare /web/image paths) to the API proxy.
-   * Leaves non-Odoo URLs unchanged (static paths, placehold.co, etc.).
+   * Rewrite Odoo media URLs (absolute or /web/image|/web/content paths) to the API proxy.
+   * Any host is accepted for /web/image and /web/content so stale cache entries from a
+   * previous ODOO_URL still rewrite. Leaves static/CDN URLs unchanged.
    */
   rewritePublicUrl(raw: string | null | undefined): string | null | undefined {
     if (raw == null || raw === '') return raw;
     const value = String(raw).trim();
     try {
-      const odooHost = new URL(this.odooBaseUrl()).host;
       let path: string;
       let query: Record<string, string> | undefined;
 
@@ -70,9 +77,8 @@ export class OdooMediaProxyService {
         path = u.pathname;
         query = Object.fromEntries(u.searchParams.entries());
         delete query.db;
-      } else {
+      } else if (/^https?:\/\//i.test(value)) {
         const u = new URL(value);
-        if (u.host !== odooHost) return value;
         if (
           !u.pathname.startsWith('/web/image/') &&
           !u.pathname.startsWith('/web/content/')
@@ -82,6 +88,8 @@ export class OdooMediaProxyService {
         path = u.pathname;
         query = Object.fromEntries(u.searchParams.entries());
         delete query.db;
+      } else {
+        return value;
       }
 
       return this.proxyUrl(path, query);
@@ -90,6 +98,7 @@ export class OdooMediaProxyService {
     }
   }
 
+  /** Allow only `/web/image` and `/web/content` paths (no path traversal). */
   assertSafePath(path: string): string {
     const normalized = path.startsWith('/') ? path : `/${path}`;
     if (normalized.includes('..') || normalized.includes('\\')) {
@@ -101,6 +110,7 @@ export class OdooMediaProxyService {
     return normalized;
   }
 
+  /** Fetch binary media from Odoo and return headers needed for the proxy response. */
   async fetchOdooMedia(
     path: string,
     query?: Record<string, string>,

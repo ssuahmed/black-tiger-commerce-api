@@ -1,3 +1,8 @@
+/**
+ * Account HTTP API for the authenticated storefront: profile, addresses,
+ * contacts, orders/payments, B2B credit, and document uploads.
+ * Credit application allows optional JWT for guest B2B signup.
+ */
 import {
   Body,
   Controller,

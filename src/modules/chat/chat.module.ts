@@ -1,3 +1,10 @@
+/**
+ * Nest module for storefront Ask AI (rules + optional LLM).
+ *
+ * Storefront → API → catalog: wires ChatController/Service with CatalogModule
+ * (products may be loaded from Odoo upstream) and AuthModule for optional JWT
+ * identity on rate limits.
+ */
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { CatalogModule } from '../catalog/catalog.module';

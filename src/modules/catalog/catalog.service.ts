@@ -1,3 +1,11 @@
+/**
+ * Storefront catalog domain: categories, PLP listing/filtering, PDP detail,
+ * featured products, search, and packaging price quotes.
+ *
+ * Reads product/category snapshots via {@link CatalogProductsProvider}
+ * (Odoo + Redis cache when live, mock fixtures otherwise). Does not call
+ * Odoo directly — pricing and taxonomy helpers stay pure against the snapshot.
+ */
 import { Injectable, NotFoundException } from '@nestjs/common';
 import {
   buildFacets,
@@ -16,6 +24,7 @@ import {
 } from './catalog-pricing';
 import { matchesTaxonomyFacet } from './catalog-taxonomy';
 
+/** Breadcrumb trail for a category PLP page. */
 function categoryBreadcrumbs(slug: string, name: string) {
   return [
     { label: 'HOME', href: '/' },
@@ -87,11 +96,13 @@ function matchesFacet(p: ProductFixture, key: string, values: string[]): boolean
 export class CatalogService {
   constructor(private readonly catalog: CatalogProductsProvider) {}
 
+  /** Category tree for storefront nav (includes `dataSource`: odoo | mock). */
   async listCategories() {
     const { categoryTree, source } = await this.catalog.getSnapshot();
     return { ...categoryTree, dataSource: source };
   }
 
+  /** Category detail page metadata (banner, breadcrumbs) by slug. */
   async getCategoryBySlug(slug: string) {
     const { categoryTree, categoriesBySlug } = await this.catalog.getSnapshot();
     const row = resolveCategoryPage(slug, categoriesBySlug, categoryTree);
@@ -101,6 +112,10 @@ export class CatalogService {
     return row;
   }
 
+  /**
+   * Product listing page: filter by category/search/facets, sort, cursor-paginate,
+   * and return facet counts scoped to the active segment.
+   */
   async listProducts(query: Record<string, string | string[] | undefined>) {
     const { productsBySlug, categoryTree, categoriesBySlug } =
       await this.catalog.getSnapshot();
@@ -185,6 +200,7 @@ export class CatalogService {
     };
   }
 
+  /** Product detail page payload mapped for the storefront PDP. */
   async getProductDetail(slug: string) {
     const { productsBySlug, source } = await this.catalog.getSnapshot();
     const p = productsBySlug[slug];
@@ -194,6 +210,10 @@ export class CatalogService {
     return { ...buildProductDetailResponse(p, productsBySlug), dataSource: source };
   }
 
+  /**
+   * Live line-price for a packaging + pallet type + quantity selection
+   * (used by PDP before add-to-cart).
+   */
   async priceQuote(
     slug: string,
     body: {
@@ -246,6 +266,7 @@ export class CatalogService {
     };
   }
 
+  /** Homepage / promo featured product cards. */
   async featured() {
     const { productsBySlug, featuredSlugs } = await this.catalog.getSnapshot();
     return featuredSlugs
@@ -254,6 +275,7 @@ export class CatalogService {
       .map(productToCard);
   }
 
+  /** Simple typeahead/search over name, code, tags, and labels. */
   async search(q: string) {
     const items = await this.catalog.getAllProducts();
     const matches =

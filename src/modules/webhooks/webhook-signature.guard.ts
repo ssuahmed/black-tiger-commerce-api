@@ -1,3 +1,10 @@
+/**
+ * HMAC-SHA256 guard for Odoo webhook requests (`X-Odoo-Signature`).
+ *
+ * Storefront → API ← Odoo: rejects unsigned or mismatched payloads so only a
+ * configured Odoo instance can bust Redis/catalog caches. Uses `rawBody` when
+ * present (see `main.ts` webhook JSON parsers) for a stable digest input.
+ */
 import {
   CanActivate,
   ExecutionContext,
@@ -12,6 +19,7 @@ import type { Request } from 'express';
 export class WebhookSignatureGuard implements CanActivate {
   constructor(private readonly config: ConfigService) {}
 
+  /** Verify `X-Odoo-Signature` against HMAC of the raw request body. */
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest<Request & { rawBody?: Buffer }>();
     const secret =
@@ -25,6 +33,7 @@ export class WebhookSignatureGuard implements CanActivate {
     if (!signature) {
       throw new UnauthorizedException('Missing X-Odoo-Signature');
     }
+    // Prefer raw bytes captured by the webhook-specific json() middleware.
     const raw =
       req.rawBody ??
       Buffer.from(typeof req.body === 'string' ? req.body : JSON.stringify(req.body ?? {}));
@@ -32,6 +41,7 @@ export class WebhookSignatureGuard implements CanActivate {
     const provided = signature.trim().toLowerCase();
     const expectedBuf = Buffer.from(expected, 'utf8');
     const providedBuf = Buffer.from(provided, 'utf8');
+    // Constant-time compare to avoid leaking signature length/timing.
     if (
       expectedBuf.length !== providedBuf.length ||
       !timingSafeEqual(expectedBuf, providedBuf)

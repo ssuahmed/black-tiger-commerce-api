@@ -1,3 +1,10 @@
+/**
+ * Storefront shopping cart: create/merge, line CRUD, promo evaluation,
+ * logistics (pallet) summary, and SAR totals with 15% VAT.
+ *
+ * Prices come from the catalog snapshot (Odoo packaging tiers when live);
+ * cart state lives in {@link PersistenceService} (in-memory for the session).
+ */
 import {
   ForbiddenException,
   Injectable,
@@ -23,6 +30,7 @@ export class CartService {
     private readonly promotions: PromotionsService,
   ) {}
 
+  /** Create a cart, or reclaim `mergeCartId` when anonymous/owned by the user. */
   async createCart(userId: string | undefined, mergeCartId?: string) {
     if (mergeCartId) {
       const existing = this.persistence.carts.get(mergeCartId);
@@ -44,12 +52,14 @@ export class CartService {
     return this.present(cart);
   }
 
+  /** Full cart presentation (lines, logistics, promo, totals). */
   async getCart(cartId: string, userId: string | undefined) {
     const cart = this.requireCart(cartId);
     this.assertAccess(cart, userId);
     return this.present(cart);
   }
 
+  /** Add or merge a line (same product + packaging + pallet type). */
   async addItem(
     cartId: string,
     dto: {
@@ -96,6 +106,7 @@ export class CartService {
     return this.presentLine(cart, line);
   }
 
+  /** Update quantity / packaging / pallet type on a cart line. */
   async patchItem(
     cartId: string,
     lineId: string,
@@ -125,6 +136,7 @@ export class CartService {
     return this.presentLine(cart, line);
   }
 
+  /** Remove a line and return the updated cart. */
   async removeItem(cartId: string, lineId: string, userId: string | undefined) {
     const cart = this.requireCart(cartId);
     this.assertAccess(cart, userId);
@@ -137,6 +149,7 @@ export class CartService {
     return this.present(cart);
   }
 
+  /** Delete cart and any associated checkout draft (post-order cleanup). */
   deleteCart(cartId: string, userId: string | undefined) {
     const cart = this.persistence.carts.get(cartId);
     if (!cart) {
@@ -147,6 +160,7 @@ export class CartService {
     this.persistence.checkoutDrafts.delete(cartId);
   }
 
+  /** Load cart entity or 404. */
   requireCart(id: string): CartEntity {
     const cart = this.persistence.carts.get(id);
     if (!cart) {
@@ -155,6 +169,7 @@ export class CartService {
     return cart;
   }
 
+  /** Claim an anonymous cart for the authenticated user at checkout start. */
   attachUserIfAnonymous(cartId: string, userId: string): CartEntity {
     const cart = this.requireCart(cartId);
     if (cart.userId && cart.userId !== userId) {
@@ -171,6 +186,7 @@ export class CartService {
     }
   }
 
+  /** Enrich lines from catalog, apply promo, compute logistics + VAT totals. */
   private async present(cart: CartEntity) {
     const [lines, snapshot] = await Promise.all([
       Promise.all(cart.items.map((l) => this.linePayload(cart, l))),

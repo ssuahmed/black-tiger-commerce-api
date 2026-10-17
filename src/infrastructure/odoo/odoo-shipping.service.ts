@@ -1,3 +1,10 @@
+/**
+ * Storefront freight options: vehicle-catalog fixtures with optional Odoo overrides.
+ *
+ * Storefront → API → Odoo: checkout reads shipping options here. When not live, or when
+ * Odoo returns nothing / errors, the API-owned vehicle catalog is the source of truth.
+ * Successful live reads are cached in Redis (with in-memory fallback).
+ */
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../redis/redis.module';
@@ -45,11 +52,14 @@ export class OdooShippingService {
     private readonly config: ConfigService,
   ) {}
 
+  /** Whether shipping options may be loaded from live Odoo. */
   isLive(): boolean {
     return this.odoo.isConfigured();
   }
 
+  /** Return checkout shipping options (cache → Odoo → fixture fallback). */
   async getStorefrontOptions(): Promise<StorefrontShippingOption[]> {
+    // Fall back to fixtures when ODOO_MODE != live.
     // Always expose the vehicle catalog for packing/pricing. Live Odoo may
     // override labels later; capacities and mock costs stay API-owned for now.
     if (!this.isLive()) {
@@ -84,6 +94,7 @@ export class OdooShippingService {
     return FIXTURE_OPTIONS;
   }
 
+  /** Drop Redis + in-memory shipping option cache (e.g. after webhook). */
   async invalidateCache(): Promise<void> {
     if (this.redis.enabled) {
       await this.redis.del(CACHE_KEY);
@@ -98,6 +109,7 @@ export class OdooShippingService {
     return Number.isFinite(n) && n > 0 ? n : DEFAULT_TTL_SEC;
   }
 
+  // Prefer Redis; fall back to process-local TTL cache when Redis is down/disabled.
   private async getCached(): Promise<StorefrontShippingOption[] | null> {
     if (this.redis.enabled) {
       const raw = await this.redis.get(CACHE_KEY);

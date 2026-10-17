@@ -1,3 +1,11 @@
+/**
+ * Authenticated account domain for the storefront: profile summary, addresses,
+ * contacts, orders/payments, B2B credit application, and business documents.
+ *
+ * Live mode reads/writes Odoo partners and sale orders via
+ * {@link OdooCustomerService} / {@link OdooOrderService}; session caches live
+ * in {@link PersistenceService} for checkout reuse.
+ */
 import {
   BadRequestException,
   ForbiddenException,
@@ -44,6 +52,7 @@ export class AccountService {
     private readonly odooCustomers: OdooCustomerService,
   ) {}
 
+  /** Fetch live Odoo storefront account profile, or null when offline/missing. */
   private async odooProfile(email: string) {
     if (!this.odooCustomers.isLive()) {
       return null;
@@ -71,6 +80,7 @@ export class AccountService {
     return u;
   }
 
+  /** Account hub summary: segment, B2B capabilities, credit, nav badges. */
   async summary(userId: string) {
     const u = this.user(userId);
     const odoo = await this.odooProfile(u.email);
@@ -145,6 +155,7 @@ export class AccountService {
     };
   }
 
+  /** Editable profile fields from the session user. */
   getProfile(userId: string) {
     const u = this.user(userId);
     return {
@@ -160,6 +171,7 @@ export class AccountService {
     };
   }
 
+  /** Patch profile locally and best-effort sync name/phone to Odoo. */
   async patchProfile(userId: string, dto: UpdateProfileDto) {
     const u = this.user(userId);
     Object.assign(u, dto);
@@ -182,6 +194,7 @@ export class AccountService {
     return this.getProfile(userId);
   }
 
+  /** B2B credit account balance / application status from Odoo. */
   async credits(
     userId: string,
     tab = 'credits',
@@ -257,6 +270,7 @@ export class AccountService {
     };
   }
 
+  /** Stub credit withdrawal request (B2B only). */
   withdraw(userId: string, dto: WithdrawCreditsDto) {
     void dto;
     const u = this.user(userId);
@@ -269,6 +283,10 @@ export class AccountService {
     };
   }
 
+  /**
+   * Merge session address book with Odoo partner addresses (deduped by line/city/zip)
+   * and hydrate the session cache for checkout reuse.
+   */
   async listAddresses(userId: string, usage: string, defaultsOnly: boolean) {
     const u = this.user(userId);
     const memoryItems = [...this.persistence.getUserAddresses(userId).values()];
@@ -351,6 +369,7 @@ export class AccountService {
     };
   }
 
+  /** Create address in Odoo when live, always store in session address book. */
   async createAddress(userId: string, dto: AddressInputDto) {
     const u = this.user(userId);
     const now = new Date().toISOString();
@@ -426,6 +445,7 @@ export class AccountService {
     return row;
   }
 
+  /** Update a session-cached address. */
   patchAddress(userId: string, addressId: string, dto: AddressInputDto) {
     const row = this.persistence.getUserAddresses(userId).get(addressId);
     if (!row) {
@@ -435,6 +455,7 @@ export class AccountService {
     return row;
   }
 
+  /** Remove an address from the session address book. */
   deleteAddress(userId: string, addressId: string) {
     const ok = this.persistence.getUserAddresses(userId).delete(addressId);
     if (!ok) {
@@ -442,6 +463,7 @@ export class AccountService {
     }
   }
 
+  /** Mark one address as default shipping or billing. */
   setDefaultAddress(userId: string, addressId: string, type: string) {
     const row = this.persistence.getUserAddresses(userId).get(addressId);
     if (!row) {
@@ -471,6 +493,7 @@ export class AccountService {
     };
   }
 
+  /** Merge session contacts with Odoo partner contacts and hydrate cache. */
   async listContacts(userId: string, usage: string, defaultsOnly: boolean) {
     const u = this.user(userId);
     const memoryItems = [...this.persistence.getUserContacts(userId).values()];
@@ -543,6 +566,7 @@ export class AccountService {
     };
   }
 
+  /** Create contact in Odoo when live; always store in session contact book. */
   async createContact(userId: string, dto: ContactInputDto) {
     const u = this.user(userId);
     const now = new Date().toISOString();
@@ -600,6 +624,7 @@ export class AccountService {
     return this.contactOut(row);
   }
 
+  /** Single contact by id. */
   getContact(userId: string, contactId: string) {
     const row = this.persistence.getUserContacts(userId).get(contactId);
     if (!row) {
@@ -608,6 +633,7 @@ export class AccountService {
     return this.contactOut(row);
   }
 
+  /** Update a session-cached contact. */
   patchContact(userId: string, contactId: string, dto: ContactInputDto) {
     const row = this.persistence.getUserContacts(userId).get(contactId);
     if (!row) {
@@ -617,6 +643,7 @@ export class AccountService {
     return this.contactOut(row);
   }
 
+  /** Remove a contact from the session contact book. */
   deleteContact(userId: string, contactId: string) {
     const ok = this.persistence.getUserContacts(userId).delete(contactId);
     if (!ok) {
@@ -624,6 +651,7 @@ export class AccountService {
     }
   }
 
+  /** Set default delivery / order-notifications / billing contact. */
   setDefaultContact(userId: string, contactId: string, type: string) {
     const row = this.persistence.getUserContacts(userId).get(contactId);
     if (!row) {
@@ -654,6 +682,7 @@ export class AccountService {
     return this.contactOut(row);
   }
 
+  /** Saved payment methods placeholder (PayTabs does not vault cards yet). */
   paymentMethods(_userId: string) {
     void _userId;
     return {
@@ -665,6 +694,7 @@ export class AccountService {
     };
   }
 
+  /** Payment history derived from storefront orders (PayTabs / wire / COD). */
   async payments(userId: string, page = 1, pageSize = 50) {
     const orders = await this.orders(userId, page, pageSize);
     const items = (orders.items || []).map((row) => {
@@ -715,6 +745,7 @@ export class AccountService {
     };
   }
 
+  /** Notification preference flags for the account settings page. */
   getNotifications(userId: string) {
     this.user(userId);
     return (
@@ -727,6 +758,7 @@ export class AccountService {
     );
   }
 
+  /** Patch notification preferences (session-stored). */
   patchNotifications(userId: string, dto: NotificationPrefsDto) {
     this.user(userId);
     const cur = this.persistence.notificationPrefs.get(userId) ?? {
@@ -745,6 +777,7 @@ export class AccountService {
     return next;
   }
 
+  /** Security settings summary (links into auth password flows). */
   security(userId: string) {
     this.user(userId);
     return {
@@ -755,6 +788,7 @@ export class AccountService {
     };
   }
 
+  /** Order history from Odoo when live, else local persistence cache. */
   async orders(userId: string, page = 1, pageSize = 20) {
     const u = this.user(userId);
     if (this.odooOrders.isLive()) {
@@ -810,6 +844,7 @@ export class AccountService {
     return paginate(rows, page, pageSize);
   }
 
+  /** Attach a wire-transfer receipt PDF/image to an Odoo sale order. */
   async uploadWireReceipt(
     userId: string,
     input: {
@@ -922,11 +957,13 @@ export class AccountService {
     }
   }
 
+  /** Returns list placeholder (not yet wired to Odoo RMAs). */
   returns(userId: string, page = 1) {
     this.user(userId);
     return paginate([], page, 20);
   }
 
+  /** Approved B2B company profile (billing, credit limit, terms). */
   async business(userId: string) {
     const u = this.user(userId);
     const odoo = await this.odooProfile(u.email);
@@ -970,6 +1007,7 @@ export class AccountService {
     };
   }
 
+  /** B2B application / verification status for the account banner. */
   async businessStatus(userId: string) {
     const u = this.user(userId);
     const odoo = await this.odooProfile(u.email);
@@ -1022,6 +1060,10 @@ export class AccountService {
     };
   }
 
+  /**
+   * Submit a credit application (optional auth). Marks user B2B pending and
+   * syncs the application payload to Odoo when live.
+   */
   async submitCredit(userId: string | undefined, dto: CreditApplicationDto) {
     const applicationId = newId();
     const entity: CreditApplicationEntity = {
@@ -1078,6 +1120,7 @@ export class AccountService {
     };
   }
 
+  /** Record a credit-application document upload (session stub metadata). */
   uploadCreditDoc(
     userId: string,
     applicationId: string,
@@ -1111,6 +1154,10 @@ export class AccountService {
     'image/jpg',
   ]);
 
+  /**
+   * Attach CR / VAT / national-address documents to the Odoo company partner
+   * (required after B2B business form submit).
+   */
   async uploadBusinessDocument(
     userId: string,
     documentType: string,

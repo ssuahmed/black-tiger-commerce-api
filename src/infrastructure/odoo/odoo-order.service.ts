@@ -1,3 +1,10 @@
+/**
+ * Odoo sale-order bridge for storefront checkout and order history.
+ *
+ * Storefront → API → Odoo: checkout posts a cart payload here; Odoo creates/confirms
+ * `sale.order` via `bt_create_storefront_order`, attaches wire receipts, and pages
+ * past orders for the account UI.
+ */
 import { Injectable, Logger } from '@nestjs/common';
 import { OdooClient } from './odoo.client';
 
@@ -99,6 +106,7 @@ export class OdooOrderService {
 
   constructor(private readonly odoo: OdooClient) {}
 
+  /** Whether order RPCs should hit live Odoo. */
   isLive(): boolean {
     return this.odoo.isConfigured();
   }
@@ -121,6 +129,7 @@ export class OdooOrderService {
     return result;
   }
 
+  /** Attach a bank-transfer receipt to an order and update payment status. */
   async attachWireReceipt(input: {
     orderId?: number | string;
     orderNumber?: string;
@@ -167,6 +176,7 @@ export class OdooOrderService {
     };
   }
 
+  /** Paginated order history for the partner email (account → orders). */
   async listStorefrontOrders(
     partnerEmail: string,
     page = 1,

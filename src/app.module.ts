@@ -1,3 +1,10 @@
+/**
+ * Root Nest module for Black Tiger Commerce API.
+ *
+ * Storefront → API → Odoo: composes storefront feature modules (catalog, cart,
+ * checkout, account, content, chat, …) with Redis/persistence infrastructure.
+ * WebhooksModule receives Odoo change events to keep caches aligned with ERP.
+ */
 import { MiddlewareConsumer, Module, NestModule, ValidationPipe } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_FILTER, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
@@ -53,6 +60,7 @@ import { MediaModule } from './modules/media/media.module';
   ],
 })
 export class AppModule implements NestModule {
+  /** Attach a request-id to every inbound HTTP request. */
   configure(consumer: MiddlewareConsumer) {
     consumer.apply(RequestIdMiddleware).forRoutes('*');
   }

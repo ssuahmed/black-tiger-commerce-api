@@ -1,3 +1,6 @@
+/**
+ * Payment Nest module: sandbox + PayTabs gateways and PayTabs webhook controller.
+ */
 import { Module } from '@nestjs/common';
 import { PersistenceModule } from '../../persistence/persistence.module';
 import { PaymentService } from './payment.service';

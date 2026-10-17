@@ -1,3 +1,11 @@
+/**
+ * In-process session/store for the Commerce API.
+ *
+ * Holds ephemeral users, auth challenges, carts, checkout drafts, payment
+ * intents, address/contact books, quotes, and local orders. Durable customer
+ * credentials and orders live in Odoo when live; Redis is used only for
+ * idempotency keys (with an in-memory fallback).
+ */
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { newId } from '../common/utils/uuid';
 import { hashPassword } from '../common/utils/crypto-password';
@@ -255,6 +263,7 @@ export interface OrderEntity {
 export class PersistenceService implements OnModuleInit {
   private readonly logger = new Logger(PersistenceService.name);
 
+  // --- Auth / session ---
   readonly usersById = new Map<string, StoredUser>();
   readonly usersByEmail = new Map<string, string>();
   readonly authChallenges = new Map<string, AuthChallengeRecord>();
@@ -265,11 +274,13 @@ export class PersistenceService implements OnModuleInit {
   >();
   readonly refreshTokens = new Map<string, RefreshTokenRecord>();
 
+  // --- Cart / checkout / payments ---
   readonly carts = new Map<string, CartEntity>();
   readonly checkoutDrafts = new Map<string, CheckoutDraftEntity>();
   readonly paymentIntentsById = new Map<string, PaymentIntentEntity>();
   readonly paymentIntentsByTranRef = new Map<string, string>();
 
+  // --- Account books ---
   readonly listsByUser = new Map<string, Map<string, SavedListEntity>>();
   readonly addressesByUser = new Map<string, Map<string, AddressEntity>>();
   readonly contactsByUser = new Map<string, Map<string, ContactEntity>>();
@@ -289,6 +300,7 @@ export class PersistenceService implements OnModuleInit {
     { balanceAmount: number; currency: string }
   >();
 
+  // --- Quotes / B2B / local order cache ---
   readonly quotesByUser = new Map<string, Map<string, QuoteStubEntity>>();
   readonly creditApplicationsById = new Map<string, CreditApplicationEntity>();
   readonly ordersByUser = new Map<string, OrderEntity[]>();
@@ -358,6 +370,7 @@ export class PersistenceService implements OnModuleInit {
     this.creditsLedger.set(id, { balanceAmount: 1250.5, currency: 'SAR' });
   }
 
+  /** Read a cached idempotent HTTP response (Redis `idem:` key or memory). */
   async getIdempotentResponse(
     key: string,
   ): Promise<{ status: number; body: unknown } | null> {
@@ -385,6 +398,7 @@ export class PersistenceService implements OnModuleInit {
     }
   }
 
+  /** Store an idempotent HTTP response with TTL (Redis preferred). */
   async setIdempotentResponse(
     key: string,
     status: number,
@@ -403,6 +417,7 @@ export class PersistenceService implements OnModuleInit {
     });
   }
 
+  /** Lazily create the saved-lists bucket for a user. */
   getUserLists(userId: string): Map<string, SavedListEntity> {
     let m = this.listsByUser.get(userId);
     if (!m) {
@@ -412,6 +427,7 @@ export class PersistenceService implements OnModuleInit {
     return m;
   }
 
+  /** Lazily create the address-book bucket for a user. */
   getUserAddresses(userId: string): Map<string, AddressEntity> {
     let m = this.addressesByUser.get(userId);
     if (!m) {
@@ -421,6 +437,7 @@ export class PersistenceService implements OnModuleInit {
     return m;
   }
 
+  /** Lazily create the contacts bucket for a user. */
   getUserContacts(userId: string): Map<string, ContactEntity> {
     let m = this.contactsByUser.get(userId);
     if (!m) {
@@ -430,6 +447,7 @@ export class PersistenceService implements OnModuleInit {
     return m;
   }
 
+  /** Lazily create the quotes bucket for a user. */
   getUserQuotes(userId: string): Map<string, QuoteStubEntity> {
     let m = this.quotesByUser.get(userId);
     if (!m) {
@@ -439,10 +457,12 @@ export class PersistenceService implements OnModuleInit {
     return m;
   }
 
+  /** Local order history cache (fallback when Odoo list fails / offline). */
   getUserOrders(userId: string): OrderEntity[] {
     return this.ordersByUser.get(userId) ?? [];
   }
 
+  /** Prepend a locally recorded order after checkout submit. */
   addOrder(order: OrderEntity): void {
     const rows = this.ordersByUser.get(order.userId) ?? [];
     rows.unshift(order);

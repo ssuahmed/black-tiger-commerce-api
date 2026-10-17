@@ -1,3 +1,7 @@
+/**
+ * Account Nest module: Odoo customer/order services for profile, address book,
+ * and order history behind JWT-guarded routes.
+ */
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { PersistenceModule } from '../../persistence/persistence.module';

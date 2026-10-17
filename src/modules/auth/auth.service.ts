@@ -77,8 +77,8 @@ export class AuthService {
   }
 
   private generateOtpCode(): string {
-    // Stable code when USE_MOCK_OTP is enabled (local smoke / e2e).
-    if (this.useMockOtp()) {
+    // Stable code when USE_MOCK_OTP or WHATSAPP_SEND_HELLO_FOR_TEST is on.
+    if (this.useFixedOtp()) {
       return '123456';
     }
     return String(100000 + Math.floor(Math.random() * 900000));
@@ -355,18 +355,23 @@ export class AuthService {
 
   /** When true, OTP is fixed to 123456 and accepted as a mock bypass. */
   private useMockOtp(): boolean {
-    const raw = (
-      this.config.get<string>('USE_MOCK_OTP') ??
-      process.env.USE_MOCK_OTP ??
-      ''
-    )
+    return this.envFlag('USE_MOCK_OTP');
+  }
+
+  /** Hello-world WhatsApp probe still pins OTP to 123456 with USE_MOCK_OTP off. */
+  private useFixedOtp(): boolean {
+    return this.useMockOtp() || this.whatsapp.sendHelloForTest();
+  }
+
+  private envFlag(key: string): boolean {
+    const raw = (this.config.get<string>(key) ?? process.env[key] ?? '')
       .trim()
       .toLowerCase();
     return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on';
   }
 
   private isMockOtp(code: string): boolean {
-    return this.useMockOtp() && String(code || '').trim() === '123456';
+    return this.useFixedOtp() && String(code || '').trim() === '123456';
   }
 
   /** Password complexity rules exposed to the storefront signup/reset UI. */
